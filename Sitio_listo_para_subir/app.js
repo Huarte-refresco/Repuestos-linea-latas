@@ -366,7 +366,7 @@ function detect(rows){
     const ci=(...alts)=>cells.findIndex(c=>alts.includes(c));
     const cMat=ci('material','n sap','nº sap','no sap','numero sap','sap');
     const cStock=ci('stock real'),cPP=ci('punto pedido'),cEq=ci('equipo'),cQ=ci('cantidad consumida');
-    if(cMat>=0&&cStock>=0&&cPP>=0)return {kind:'stock',hdr:r,c:{mat:cMat,stock:cStock,pp:cPP,ub:ci('ubic.','ubic','ubicacion')}};
+    if(cMat>=0&&cStock>=0&&cPP>=0)return {kind:'stock',hdr:r,c:{mat:cMat,stock:cStock,pp:cPP,ub:ci('ubic.','ubic','ubicacion'),alt:cells.map((c,i)=>(c.includes('material antiguo')||/^n.?fb$/.test(c))?i:-1).filter(i=>i>=0)}};
     if(cEq>=0&&cMat>=0&&cQ>=0)return {kind:'cons',hdr:r,c:{eq:cEq,mat:cMat,q:cQ,ref:ci('referencia proveedor'),desc:ci('texto breve de material'),crit:ci('critico')}};
     const cCode=ci('codigo fabricante','codigo khs','cod. khs','codigo','n fabricante');
     if(cCode>=0&&cMat>=0)return {kind:'crit',hdr:r,c:{code:cCode,desc:ci('descripcion','denominacion'),sap:cMat,match:ci('tipo coincidencia'),stock:ci('stock real')}};
@@ -374,6 +374,31 @@ function detect(rows){
   return null;
 }
 const S=v=>v==null?'':(typeof v==='number'?String(v):String(v).trim());
+// Excel de críticos con hojas «según parada» (RC con x), «según manual» (todas) y «esquema eléctrico» (RC con x)
+const rcName=n=>{n=norm(n);return /esquema/.test(n)?'el':/manual/.test(n)?'all':/parada|libro de operaciones/.test(n)?'x':''};
+function resolveRc(f,all){
+  const H=all.slice(0,5).map(r=>(r||[]).map(norm));
+  const W=all.slice(0,400).reduce((m,r)=>Math.max(m,(r||[]).length),0);
+  let hdr=-1;
+  H.forEach((r,i)=>{if(r.some(c=>c==='rc'||c==='codigo'||c==='codigo khs'||c.startsWith('numero de identificat')||c.startsWith('descripcion')||c.startsWith('denominacion')))hdr=i});
+  const colBy=fn=>{for(let i=0;i<W;i++)for(let r=0;r<=hdr;r++)if(fn(H[r][i]||''))return i;return -1};
+  let cCode=colBy(c=>c.startsWith('numero de identificat'));
+  if(cCode<0)cCode=colBy(c=>c==='codigo khs'||c==='cod. khs');
+  if(cCode<0)cCode=colBy(c=>c==='codigo');
+  if(cCode<0)cCode=colBy(c=>c==='identificacion');
+  const data=all.slice(hdr+1);
+  if(cCode<0){let best=0;const re=/^([A-Za-z]?\d{6,}[A-Za-z]?\d*)$/;
+    for(let i=0;i<Math.min(W,40);i++){const v=new Set();data.forEach(r=>{const x=S(r[i]);if(re.test(x))v.add(x)});if(v.size>best){best=v.size;cCode=i}}
+    if(best<3)cCode=-1}
+  if(cCode<0)return;
+  let cDesc=colBy(c=>c.startsWith('descripcion')||c.startsWith('denominacion'));if(cDesc<0)cDesc=cCode+1;
+  let cRc=f.t==='all'?-1:colBy(c=>c==='rc');
+  if(f.t!=='all'&&cRc<0){for(let i=Math.min(W,60)-1;i>=0;i--){if(data.some(r=>norm(r[i])==='x')){cRc=i;break}}}
+  if(f.t!=='all'&&cRc<0)return;
+  f.kind=f.t==='el'?'rcel':f.t==='all'?'rcall':'rcx';
+  f.c={code:cCode,desc:cDesc,rc:cRc,sap:colBy(c=>c==='sap'||c==='n sap'||c==='nº sap')};f.hdr=hdr;delete f.alt;
+  f.rows=data.filter(r=>S(r[cCode])&&(f.t==='all'?/^\S+$/.test(S(r[cCode])):norm(r[cRc])==='x'));
+}
 async function readFile(file){
   if(!window.XLSX)throw new Error('No se pudo cargar el lector de Excel. Revisa la conexión y recarga la página.');
   const buf=await file.arrayBuffer();
@@ -381,12 +406,14 @@ async function readFile(file){
   const found=[];
   for(const name of probe.SheetNames){
     const rows=XLSX.utils.sheet_to_json(probe.Sheets[name],{header:1,defval:null,raw:true});
-    const d=detect(rows);if(d)found.push(Object.assign({name,file:file.name},d));
+    const t=rcName(name);let d=t?{kind:'rc',t,hdr:-1,alt:detect(rows)}:detect(rows);
+    if(d)found.push(Object.assign({name,file:file.name},d));
   }
   if(!found.length)return {file:file.name,found:[]};
   const wb=XLSX.read(buf,{type:'array',sheets:found.map(f=>f.name)});
-  found.forEach(f=>{f.rows=XLSX.utils.sheet_to_json(wb.Sheets[f.name],{header:1,defval:null,raw:true}).slice(f.hdr+1)});
-  return {file:file.name,found};
+  found.forEach(f=>{const all=XLSX.utils.sheet_to_json(wb.Sheets[f.name],{header:1,defval:null,raw:true});
+    if(f.kind==='rc'){resolveRc(f,all);if(f.kind==='rc'&&f.alt){const a=f.alt;delete f.alt;Object.assign(f,a);f.rows=all.slice(f.hdr+1)}}else f.rows=all.slice(f.hdr+1)});
+  return {file:file.name,found:found.filter(f=>f.kind!=='rc')};
 }
 function openUpload(){
   modalKind='upload';
@@ -407,17 +434,17 @@ function openUpload(){
 }
 function showPlan(res){
   const all=res.flatMap(r=>r.found);
-  const crit=all.find(f=>f.kind==='crit'),stock=all.find(f=>f.kind==='stock'),cons=all.find(f=>f.kind==='cons');
+  const crit=all.find(f=>f.kind==='crit'),stock=all.find(f=>f.kind==='stock'),cons=all.find(f=>f.kind==='cons'),rcm=all.filter(f=>f.kind==='rcx'||f.kind==='rcall'),rcel=all.filter(f=>f.kind==='rcel');
   const out=$('#upOut');
   if(!all.length){out.innerHTML='<p class="err">No he encontrado ninguna hoja reconocible. Necesito cabeceras como «Codigo fabricante» y «Material» (críticos), «Material», «Stock Real» y «Punto pedido» (stock) o «Equipo», «Material» y «Cantidad consumida» (consumos).</p>';return}
-  out.innerHTML=`<div class="found">${res.map(r=>r.found.length?r.found.map(f=>`<div><b>${esc(f.file)}</b> · hoja «${esc(f.name)}»: ${f.kind==='crit'?'repuestos críticos':f.kind==='stock'?'lista de materiales (stock)':'consumos por equipo'}, ${f.rows.length.toLocaleString('es-ES')} filas</div>`).join(''):`<div><b>${esc(r.file)}</b>: sin hojas reconocibles</div>`).join('')}</div>
+  out.innerHTML=`<div class="found">${res.map(r=>r.found.length?r.found.map(f=>`<div><b>${esc(f.file)}</b> · hoja «${esc(f.name)}»: ${f.kind==='crit'?'repuestos críticos':f.kind==='rcx'?'críticos según parada (columna RC con x)':f.kind==='rcall'?'repuestos según manual (todos críticos)':f.kind==='rcel'?'críticos del esquema eléctrico (columna RC con x)':f.kind==='stock'?'lista de materiales (stock)':'consumos por equipo'}, ${f.rows.length.toLocaleString('es-ES')} filas</div>`).join(''):`<div><b>${esc(r.file)}</b>: sin hojas reconocibles</div>`).join('')}</div>
   <div class="opt">
-    ${crit?`<label><input type="radio" name="mode" value="replace" checked> Sustituir la lista de críticos por la del Excel</label><label><input type="radio" name="mode" value="merge"> Añadir y actualizar (no quita los críticos que ya están)</label>`:''}
+    ${(crit||rcm.length)?`<label><input type="radio" name="mode" value="replace" checked> Sustituir la lista de críticos por la del Excel</label><label><input type="radio" name="mode" value="merge"> Añadir y actualizar (no quita los críticos que ya están)</label>`:''}
     ${cons?`<label><input type="checkbox" id="optFlag" checked> Incluir como críticos los materiales marcados «Sí» en Consumos por equipo</label>`:''}
      ${cons?`<label>Código(s) de equipo de esta máquina (separados por comas): <input id="optEq" value="${esc(EQUIPO)}" placeholder="p. ej. 10001349" style="width:200px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink)"></label>`:''}
   </div>
   <div id="upSum"></div><div><button class="cbtn" id="upGo">Revisar cambios</button></div>`;
-  $('#upGo').onclick=()=>compile({crit,stock,cons,files:[...new Set(all.map(f=>f.file))].join(', ')});
+  $('#upGo').onclick=()=>compile({crit,rcm,rcel,stock,cons,files:[...new Set(all.map(f=>f.file))].join(', ')});
 }
 function compile(src){
   const mode=(document.querySelector('input[name=mode]:checked')||{}).value||'merge';
@@ -442,6 +469,20 @@ function compile(src){
       items[key]={code:code||sap,desc:c.desc>=0?S(r[c.desc]).replace(/_+/g,' · ').replace(/[ ·]+$/,'').replace(/\s+/g,' '):'',sap,match:sap?(mt&&norm(mt)!=='exacta'?'Aproximada':'Exacta'):'',src:['Excel '+src.crit.file]};
       if(sap&&c.stock>=0&&r[c.stock]!=null&&r[c.stock]!=='')fb[sap]=Number(r[c.stock])});
   }
+  if(src.rcm&&src.rcm.length){
+    items=items||{};
+    const fbm=new Map();
+    Object.values(CRITMAP).forEach(i=>{if(i&&i.sap)fbm.set(K(i.code),i.sap)});
+    if(src.stock&&src.stock.c.alt&&src.stock.c.alt.length)src.stock.rows.forEach(r=>{const m=S(r[src.stock.c.mat]);if(!m)return;src.stock.c.alt.forEach(a=>{const cd=S(r[a]);if(cd&&!fbm.has(K(cd)))fbm.set(K(cd),m)})});
+    const byCode={};Object.values(items).forEach(i=>{byCode[K(i.code)]=i});
+    src.rcm.forEach(f=>{const lab=f.kind==='rcall'?'RC según manual':'RC según parada';
+      f.rows.forEach(r=>{const code=S(r[f.c.code]);if(!code)return;const kk=K(code);
+        if(byCode[kk]){if(!(byCode[kk].src||[]).includes(lab))(byCode[kk].src=byCode[kk].src||[]).push(lab);return}
+        let sap=(f.c.sap>=0?S(r[f.c.sap]):'').replace(/\.0$/,'');if(!/^\d+$/.test(sap))sap='';sap=sap||fbm.get(kk)||'';const key=critKey(code,sap);
+        const it={code,desc:S(r[f.c.desc]).replace(/_+/g,' · ').replace(/[ ·]+$/,'').replace(/\s+/g,' '),sap,match:sap?'Exacta':'',src:[lab]};
+        items[key]=it;byCode[kk]=it})})}
+  let rcelCodes=null;
+  if(src.rcel&&src.rcel.length){rcelCodes={};src.rcel.forEach(f=>f.rows.forEach(r=>{const c=S(r[f.c.code]);if(c)rcelCodes[K(c)]=c}))}
   if(items&&cons&&flag){
     const have=new Set(Object.values(items).map(i=>i.sap).filter(Boolean));
     cons.__flag.forEach(x=>{if(have.has(x.sap))return;const key=critKey(x.code||x.sap,x.sap);if(items[key])return;
@@ -467,10 +508,10 @@ function compile(src){
   const conSap=Object.values(finalMap).filter(i=>i&&i.sap).length,total=Object.keys(finalMap).length;
   const size=JSON.stringify({items:finalMap}).length;
   const warn=size>240000?'<p class="err">La lista de críticos es demasiado grande para guardarla (límite aproximado 240 KB).</p>':'';
-  $('#upSum').innerHTML=`${warn}<div class="found"><div><b>Críticos</b>: ${items?`${total} en total (${nuevos} nuevos, ${quitados} quitados). ${conSap} con SAP, ${total-conSap} sin cruzar.`:'sin cambios (no has subido la hoja de críticos).'}</div>
+  $('#upSum').innerHTML=`${warn}<div class="found">${rcelCodes?`<div><b>Críticos eléctricos</b>: ${Object.keys(rcelCodes).length} (columna RC del esquema eléctrico). Se guardan en el botón «Esquema eléctrico», aparte de los mecánicos.</div>`:''}<div><b>Críticos</b>: ${items?`${total} en total (${nuevos} nuevos, ${quitados} quitados). ${conSap} con SAP, ${total-conSap} sin cruzar.`:'sin cambios (no has subido la hoja de críticos).'}</div>
   <div><b>Stock y consumos</b>: ${Object.keys(rows).length} materiales guardados${src.stock?`, ${cambiados} con stock distinto al anterior`:' (stock sin cambios: no has subido la lista de materiales)'}${cons?`, consumo del equipo ${esc(eq)} actualizado`:''}.${sinStock?` ${sinStock} SAP sin stock en el Excel.`:''}</div></div>`;
   const go=$('#upGo');go.textContent='Guardar para todos';go.disabled=!!warn;
-  go.onclick=()=>applyUpload({items:items?finalMap:null,rows,files:src.files});
+  go.onclick=()=>applyUpload({items:items?finalMap:null,rcel:rcelCodes,rows,files:src.files});
 }
 async function applyUpload(p){
   const go=$('#upGo');go.disabled=true;go.textContent='Guardando…';
@@ -478,6 +519,7 @@ async function applyUpload(p){
     const meta=metaNow(p.files);
     const S0=ST[M.id];
     if(p.items){await DB.doc(dp('crit')).set({items:p.items,meta});S0.critmap=CRITMAP=p.items;S0.critmeta=CRITMETA=meta}
+    if(p.rcel&&window.ELECSAVE)await window.ELECSAVE(p.rcel,meta);
     await DB.doc(dp('stock')).set({rows:p.rows,meta});S0.stockrows=STOCKROWS=p.rows;S0.stockmeta=STOCKMETA=meta;
     onData();close();toast('Datos guardados para todos');
   }catch(e){go.disabled=false;go.textContent='Guardar para todos';$('#upSum').insertAdjacentHTML('beforeend',`<p class="err">No se pudo guardar: ${esc((e&&(e.message||e.code))||'error')}</p>`)}
