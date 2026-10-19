@@ -515,7 +515,8 @@ function compile(src){
   let finalMap=Object.assign({},CRITMAP);
   const before=new Set(Object.keys(finalMap));
   if(items){finalMap=mode==='replace'?Object.assign({},items):Object.assign(finalMap,items)}
-  const nuevos=Object.keys(finalMap).filter(k=>!before.has(k)).length,quitados=[...before].filter(k=>!(k in finalMap)).length;
+  const cOld=new Set(Object.values(CRITMAP).filter(i=>i&&i.code).map(i=>K(i.code))),cNew=new Set(Object.values(finalMap).filter(i=>i&&i.code).map(i=>K(i.code)));
+  const nuevos=[...cNew].filter(k=>!cOld.has(k)).length,quitados=[...cOld].filter(k=>!cNew.has(k)).length;
   // stock
   const need=new Set(Object.values(finalMap).map(i=>i&&i.sap).filter(Boolean));
   if(cons)Object.keys(cons).forEach(k=>{if(k!=='__flag')need.add(k)});
@@ -532,10 +533,32 @@ function compile(src){
   const conSap=Object.values(finalMap).filter(i=>i&&i.sap).length,total=Object.keys(finalMap).length;
   const size=JSON.stringify({items:finalMap}).length;
   const warn=size>240000?'<p class="err">La lista de críticos es demasiado grande para guardarla (límite aproximado 240 KB).</p>':'';
-  $('#upSum').innerHTML=`${warn}<div class="found">${rcelCodes?`<div><b>Críticos eléctricos</b>: ${Object.keys(rcelCodes).length} (columna RC del esquema eléctrico). Se guardan en el botón «Esquema eléctrico», aparte de los mecánicos.</div>`:''}<div><b>Críticos</b>: ${items?`${total} en total (${nuevos} nuevos, ${quitados} quitados). ${conSap} con SAP, ${total-conSap} sin cruzar.`:'sin cambios (no has subido la hoja de críticos).'}</div>
-  <div><b>Stock y consumos</b>: ${Object.keys(rows).length} materiales guardados${src.stock?`, ${cambiados} con stock distinto al anterior`:' (stock sin cambios: no has subido la lista de materiales)'}${cons?`, consumo del equipo ${esc(eq)} actualizado`:''}.${sinStock?` ${sinStock} SAP sin stock en el Excel.`:''}</div></div>`;
+  $('#upSum').innerHTML=`${warn}<div class="found">${rcelCodes?`<div><b>Críticos eléctricos</b>: ${Object.keys(rcelCodes).length} (columna RC del esquema eléctrico). Se ven en el botón «Esquema eléctrico» y en la lista de críticos con el origen «⚡ Eléctrico».</div>`:''}<div><b>Críticos</b>: ${items?`${total} en total (${nuevos} nuevos, ${quitados} quitados). ${conSap} con SAP, ${total-conSap} sin cruzar.`:'sin cambios (no has subido la hoja de críticos).'}</div>
+  <div><b>Stock y consumos</b>: ${Object.keys(rows).length} materiales guardados${src.stock?`, ${cambiados} con stock distinto al anterior`:' (stock sin cambios: no has subido la lista de materiales)'}${cons?`, consumo del equipo ${esc(eq)} actualizado`:''}.${sinStock?` ${sinStock} SAP sin stock en el Excel.`:''}</div></div>${upDiff(items?CRITMAP:null,items?finalMap:null,rcelCodes)}`;
   const go=$('#upGo');go.textContent='Guardar para todos';go.disabled=!!warn;
   go.onclick=()=>applyUpload({items:items?finalMap:null,rcel:rcelCodes,rows,files:src.files});
+}
+// Previsualización de lo que cambia al subir un Excel de críticos
+function upDiff(oldMap,newMap,rcelNew){
+  const idx=m=>{const r=new Map();Object.values(m||{}).forEach(i=>{if(i&&i.code)r.set(K(i.code),i)});return r};
+  const o=idx(oldMap),n=idx(newMap);
+  const lab=i=>critOrig({src:i.src||[]}).map(k=>ORIG_LAB[k]).join(' + ');
+  const add=[],del=[],chg=[];
+  n.forEach((i,k)=>{const p=o.get(k);if(!p){add.push([i.code,i.desc,lab(i)]);return}
+    const ch=[];if(lab(p)!==lab(i))ch.push('Origen: '+lab(p)+' → '+lab(i));if((p.sap||'')!==(i.sap||''))ch.push('SAP: '+(p.sap||'—')+' → '+(i.sap||'—'));
+    if(ch.length)chg.push([i.code,i.desc,ch.join(' · ')])});
+  o.forEach((p,k)=>{if(!n.has(k))del.push([p.code,p.desc,lab(p)])});
+  const eadd=[],edel=[];
+  const cur=window.ELECCUR?window.ELECCUR():null;
+  if(rcelNew&&cur){const co=new Map(cur.map(x=>[K(x.code),x]));
+    Object.entries(rcelNew).forEach(([k,c])=>{if(!co.has(k))eadd.push([c,'','⚡ Eléctrico'])});
+    co.forEach((x,k)=>{if(!(k in rcelNew))edel.push([x.code,x.desc,'⚡ Eléctrico'])})}
+  const box=(title,col,rows,hd)=>{if(!rows.length)return '';const MAX=300;
+    return `<details${rows.length<=15?' open':''} style="margin:6px 0"><summary style="cursor:pointer;color:${col}"><b>${title}: ${rows.length}</b></summary><div class="tbl" style="max-height:230px;margin-top:4px"><table><thead><tr><th style="top:0">Código</th><th style="top:0">Descripción</th><th style="top:0">${hd}</th></tr></thead><tbody>${rows.slice(0,MAX).map(r=>`<tr><td class="code">${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join('')}${rows.length>MAX?`<tr><td colspan="3" class="gr">… y ${rows.length-MAX} más</td></tr>`:''}</tbody></table></div></details>`};
+  const any=add.length+del.length+chg.length+eadd.length+edel.length;
+  return `<div style="margin-top:8px"><b>Qué cambia</b>${any?'':' <span class="gr">— nada: la lista del Excel es igual a la actual.</span>'}
+  ${box('＋ Críticos nuevos','var(--blue,#1c64c8)',add,'Origen')}${box('✎ Críticos con cambios','#b7791f',chg,'Cambio')}${box('－ Críticos que se quitan','var(--crit-ink,#c92a2a)',del,'Origen')}
+  ${box('＋ Eléctricos nuevos','var(--blue,#1c64c8)',eadd,'Origen')}${box('－ Eléctricos que se quitan','var(--crit-ink,#c92a2a)',edel,'Origen')}</div>`;
 }
 async function applyUpload(p){
   const go=$('#upGo');go.disabled=true;go.textContent='Guardando…';
