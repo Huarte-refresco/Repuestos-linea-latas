@@ -292,9 +292,31 @@ function critLinks(c){
   const f=x=>`<a class="lnk" data-p="${x[0]}" data-o="${x[1]}">${esc(pathTxt(x[0]).split(' › ').slice(-2).join(' › '))}</a>`;
   return L.slice(0,3).map(f).join('')+(L.length>3?`<span class="gr">+${L.length-3} ubicaciones más</span>`:'');
 }
+// Origen de cada crítico: según parada, según manual o eléctrico (los eléctricos los aporta elec.js)
+function critAll(){
+  CRIT.forEach(c=>{c.isElec=false});
+  const x=window.CRITEXTRA?window.CRITEXTRA():null;
+  if(!x||!x.length)return CRIT;
+  const idx=new Map();CRIT.forEach(c=>idx.set(K(c.code),c));
+  const extra=[];
+  x.forEach(p=>{const c=idx.get(K(p.code));if(c){c.isElec=true;c.epg=p.epg;c.etag=p.etag}else extra.push(p)});
+  return CRIT.concat(extra);
+}
+function critOrig(c){
+  const s=c.src||[],o=[];
+  if(s.some(x=>/parada/i.test(x)))o.push('parada');
+  if(s.some(x=>/manual/i.test(x)))o.push('manual');
+  if(c.elec||c.isElec)o.push('elec');
+  if(!o.length)o.push('otro');
+  return o;
+}
+const ORIG_LAB={parada:'Parada',manual:'Manual',elec:'⚡ Eléctrico',otro:'Otro'};
+const ORIG_COL={parada:'var(--blue,#1c64c8)',manual:'#b7791f',elec:'var(--crit-ink,#c92a2a)',otro:'var(--mut,#667)'};
+const origBadges=c=>critOrig(c).map(k=>`<span title="${k==='otro'?esc((c.src||[]).join(' + ')):''}" style="display:inline-block;margin:1px 3px 1px 0;padding:0 7px;border:1px solid ${ORIG_COL[k]};color:${ORIG_COL[k]};border-radius:10px;font-size:11px;white-space:nowrap">${ORIG_LAB[k]}</span>`).join('');
 function critFiltered(){
   const q=norm(cf.q);
-  return CRIT.filter(c=>{
+  return critAll().filter(c=>{
+    if(cf.sel==='o_parada'&&!critOrig(c).includes('parada'))return false;if(cf.sel==='o_manual'&&!critOrig(c).includes('manual'))return false;if(cf.sel==='o_elec'&&!critOrig(c).includes('elec'))return false;if(cf.sel==='o_otro'&&!critOrig(c).includes('otro'))return false;
     if(cf.sel==='sap'&&!c.sap)return false;if(cf.sel==='nosap'&&c.sap)return false;if(cf.sel==='s0'&&!(c.sap&&c.hasRow&&!c.stock))return false;if(cf.sel==='nodesp'&&c.occ.length)return false;
     if(q&&!(norm(c.code).includes(q)||norm(c.desc).includes(q)||norm(c.sap).includes(q)))return false;return true});
 }
@@ -304,20 +326,22 @@ function critModal(refresh){
   const q=norm(cf.q);
   const list=critFiltered();
   const conSap=CRIT.filter(c=>c.sap).length,s0=CRIT.filter(c=>c.sap&&c.hasRow&&!c.stock).length;
+  const ALL=critAll(),nOr=k=>ALL.filter(c=>critOrig(c).includes(k)).length;
   const rows=list.map(c=>{
     let sapCell;
     if(cf.edit===c.key)sapCell=`<input id="eSap" class="code" style="width:110px" value="${esc(c.sap)}" placeholder="Nº SAP"><br><button class="mini go" data-esave="${esc(c.key)}">Guardar</button> <button class="mini" data-ecancel>Cancelar</button>`;
     else sapCell=(c.sap?esc(c.sap)+(c.match==='Aproximada'?' <span class="gr" title="Coincidencia aproximada (Contiene)">~</span>':''):'<span class="gr">sin cruzar</span>');
     let act='';
-    if(CAN){
+    if(CAN&&!c.elec){
       if(cf.del===c.key)act=`<span class="gr">¿Quitar?</span> <button class="mini danger" data-dyes="${esc(c.key)}">Sí</button> <button class="mini" data-dno>No</button>`;
       else act=`<button class="mini" data-edit="${esc(c.key)}">SAP</button> <button class="mini danger" data-del="${esc(c.key)}">Quitar</button>`;
     }
     const stk=c.sap?(c.hasRow?(c.stock===0?'<span class="z">0</span>':fmtQ(c.stock)):'<span class="gr" title="Sin stock cargado para este SAP">—</span>'):'';
-    return `<tr><td>${critLinks(c)}</td><td class="code">${esc(c.code)}</td><td>${esc(c.desc)}</td><td class="code">${sapCell}</td><td class="n stk" title="${c.pp!=null?'Punto de pedido: '+fmtQ(c.pp):''}">${stk}</td><td>${esc(c.ub)}</td><td class="n">${c.cq==null?'':fmtQ(c.cq)}</td>${CAN?`<td>${act}</td>`:''}</tr>`}).join('');
-  modal.innerHTML=`<div class="mh"><div><h2>★ Repuestos críticos · ${esc(M.name)}${EQUIPO?` (equipo ${esc(EQUIPO)})`:''}</h2><div class="crumb">${CRIT.length} críticos · ${conSap} con SAP · ${s0} con stock 0 · ${CRIT.filter(c=>c.occ.length).length} localizados en el despiece</div></div><button class="x" data-close aria-label="Cerrar">✕</button></div>
-  <div class="fbar"><select id="cfSel" aria-label="Filtro"><option value="all">Todos</option><option value="sap">Con SAP</option><option value="nosap">Sin cruzar con SAP</option><option value="s0">Con SAP y stock 0</option><option value="nodesp">No figuran en el despiece</option></select><input id="cfQ" type="search" placeholder="Filtrar código, descripción o SAP…" value="${esc(cf.q)}"><button id="cfCsv">Descargar CSV</button>${CAN?'<button id="cfUp">Cargar Excel</button>':''}<span class="crumb">${list.length} filas · consumo = unidades consumidas en este equipo en los últimos 4 años</span></div>
-  <div class="tbl" style="max-height:72vh"><table><thead><tr><th style="top:0">Subconjunto</th><th style="top:0">Código KHS</th><th style="top:0">Descripción</th><th style="top:0">Nº SAP</th><th class="n" style="top:0">Stock</th><th style="top:0">Ubic.</th><th class="n" style="top:0">Consumo 4 años</th>${CAN?'<th style="top:0"></th>':''}</tr></thead><tbody>${rows||`<tr><td colspan="8" class="nopic">${CRIT.length?'Ninguna fila con ese filtro.':'Todavía no hay repuestos críticos cargados. Usa «Cargar Excel» para subir la lista.'}</td></tr>`}</tbody></table></div>`;
+    const eln=(c.elec||c.isElec)&&c.epg?`<br><a data-epg2="${c.epg}" data-tag="${esc(c.etag||'')}" style="color:var(--crit-ink,#c92a2a);cursor:pointer;text-decoration:underline;font-size:12px">⚡ Ver en el esquema · pág. ${c.epg}</a>`:'';
+    return `<tr><td>${c.elec?'<span class="gr">Esquema eléctrico</span>':critLinks(c)}${eln}</td><td class="code">${esc(c.code)}</td><td>${esc(c.desc)}</td><td>${origBadges(c)}</td><td class="code">${sapCell}</td><td class="n stk" title="${c.pp!=null?'Punto de pedido: '+fmtQ(c.pp):''}">${stk}</td><td>${esc(c.ub)}</td><td class="n">${c.cq==null?'':fmtQ(c.cq)}</td>${CAN?`<td>${act}</td>`:''}</tr>`}).join('');
+  modal.innerHTML=`<div class="mh"><div><h2>★ Repuestos críticos · ${esc(M.name)}${EQUIPO?` (equipo ${esc(EQUIPO)})`:''}</h2><div class="crumb">${ALL.length} críticos (${nOr('parada')} según parada · ${nOr('manual')} según manual · ${nOr('elec')} eléctricos${nOr('otro')?' · '+nOr('otro')+' otros':''}) · ${conSap} con SAP · ${s0} con stock 0 · ${CRIT.filter(c=>c.occ.length).length} localizados en el despiece</div></div><button class="x" data-close aria-label="Cerrar">✕</button></div>
+  <div class="fbar"><select id="cfSel" aria-label="Filtro"><option value="all">Todos</option><option value="o_parada">Origen: según parada (libro de operaciones)</option><option value="o_manual">Origen: según manual</option><option value="o_elec">Origen: ⚡ eléctricos (esquema)</option><option value="o_otro">Origen: otros</option><option value="sap">Con SAP</option><option value="nosap">Sin cruzar con SAP</option><option value="s0">Con SAP y stock 0</option><option value="nodesp">No figuran en el despiece</option></select><input id="cfQ" type="search" placeholder="Filtrar código, descripción o SAP…" value="${esc(cf.q)}"><button id="cfCsv">Descargar CSV</button>${CAN?'<button id="cfUp">Cargar Excel</button>':''}<span class="crumb">${list.length} filas · consumo = unidades consumidas en este equipo en los últimos 4 años</span></div>
+  <div class="tbl" style="max-height:72vh"><table><thead><tr><th style="top:0">Subconjunto</th><th style="top:0">Código KHS</th><th style="top:0">Descripción</th><th style="top:0">Origen</th><th style="top:0">Nº SAP</th><th class="n" style="top:0">Stock</th><th style="top:0">Ubic.</th><th class="n" style="top:0">Consumo 4 años</th>${CAN?'<th style="top:0"></th>':''}</tr></thead><tbody>${rows||`<tr><td colspan="9" class="nopic">${ALL.length?'Ninguna fila con ese filtro.':'Todavía no hay repuestos críticos cargados. Usa «Cargar Excel» para subir la lista.'}</td></tr>`}</tbody></table></div>`;
   $('#cfSel').value=cf.sel;
   if(aid){const el=document.getElementById(aid);if(el){el.focus();if(el.setSelectionRange&&asel!=null)try{el.setSelectionRange(asel,asel)}catch(e){}}}
   if(cf.edit&&!refresh){const el=$('#eSap');if(el){el.focus();el.select()}}
@@ -338,9 +362,9 @@ modal.addEventListener('click',e=>{
   const dy=t.closest('[data-dyes]');if(dy){const k=dy.dataset.dyes;cf.del=null;saveItems({[k]:null});return}
 });
 function csvCrit(){
-  const list=critFiltered();const h=['Subconjunto','Código KHS','Descripción','Nº SAP','Stock','Ubicación','Consumo 4 años','Fuente'];
+  const list=critFiltered();const h=['Subconjunto','Código KHS','Descripción','Nº SAP','Stock','Ubicación','Consumo 4 años','Fuente','Origen'];
   const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
-  const csv='﻿'+[h.map(q).join(';')].concat(list.map(c=>[c.occ.length?[...new Set(c.occ.map(o=>pathTxt(N[o].parent)))].join(' | '):'No figura en el despiece',c.code,c.desc,c.sap,c.stock,c.ub,c.cq,(c.src||[]).join(' + ')].map(q).join(';'))).join('\n');
+  const csv='﻿'+[h.map(q).join(';')].concat(list.map(c=>[c.occ.length?[...new Set(c.occ.map(o=>pathTxt(N[o].parent)))].join(' | '):'No figura en el despiece',c.code,c.desc,c.sap,c.stock,c.ub,c.cq,(c.src||[]).join(' + '),critOrig(c).map(k=>ORIG_LAB[k]).join(' + ')].map(q).join(';'))).join('\n');
   saveFile('repuestos_criticos_'+M.id+'.csv',csv);
 }
 $('#bCrit').onclick=()=>{cf={sel:'all',q:'',edit:null,del:null};critModal()};
