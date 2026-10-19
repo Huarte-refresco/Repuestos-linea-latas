@@ -30,7 +30,7 @@ function watchRc(){
   const m=M;EL.sub[m.id]=1;
   try{DB.doc('shared/critel'+(m.suffix||'')).onSnapshot(s=>{const d=s.exists?s.data():null;
     EL.rcdoc[m.id]=d&&d.codes?d.codes:null;EL.rc[m.id]=d&&d.codes?new Set(Object.keys(d.codes).map(Kn)):null;
-    if(M&&M.id===m.id){upd();if(ov.classList.contains('on')&&modalKind==='elec')elecModal(true)}},()=>{EL.sub[m.id]=0})}catch(e){EL.sub[m.id]=0}
+    if(M&&M.id===m.id){upd();if(ov.classList.contains('on')&&modalKind==='elec')elecModal(true);refCrit()}},()=>{EL.sub[m.id]=0})}catch(e){EL.sub[m.id]=0}
 }
 const isRC=p=>{const s=EL.rc[M.id];return s?s.has(Kn(p.k)):!!p.x};
 function allParts(){
@@ -39,12 +39,19 @@ function allParts(){
   const extra=Object.values(doc).filter(c=>!have.has(Kn(c))).map(c=>({k:String(c),d:'(no figura en la lista de piezas del esquema)',f:'',m:'',l:[],x:1}));
   return extra.length?d.parts.concat(extra):d.parts;
 }
+window.CRITEXTRA=()=>{
+  if(!M||!EL.data||!EL.data[M.id])return [];
+  return allParts().filter(isRC).map(p=>{const l=(p.l||[]).find(x=>x.p)||null;
+    return {key:'el~'+p.k,code:p.k,desc:(p.d+(p.f?' · '+p.f:'')+(p.m?' '+p.m:'')).trim(),sap:'',match:'',src:[],occ:[],stock:null,ub:'',pp:null,cq:null,hasRow:false,elec:true,epg:l?l.p:0,etag:l?l.t:''}});
+};
+const refCrit=()=>{if(ov.classList.contains('on')&&modalKind==='crit')critModal(true)};
 function upd(){
   watchRc();
   const d=cur();b.hidden=!(M&&d);if(!d)return;
   document.getElementById('nElec').textContent=allParts().filter(isRC).length;
+  try{document.getElementById('nCrit').textContent=critAll().length}catch(e){}
 }
-load().then(upd).catch(()=>{});
+load().then(()=>{upd();refCrit()}).catch(()=>{});
 const _sel=selectMachine;selectMachine=function(id){_sel(id);upd()};
 const _od=onData;onData=function(){_od();upd()};
 const _rm=refreshModal;refreshModal=function(){if(ov.classList.contains('on')&&modalKind==='elec')return elecModal(true);if(modalKind==='pdf')return;_rm()};
@@ -108,6 +115,10 @@ window.ELECSAVE=async(codes,meta)=>{
   await DB.doc(id).set({codes,meta});
   EL.rcdoc[M.id]=codes;EL.rc[M.id]=new Set(Object.keys(codes).map(Kn));upd();
 };
+modal.addEventListener('click',e=>{
+  if(modalKind!=='crit')return;const a=e.target.closest('[data-epg2]');
+  if(a)load().then(()=>openPdf(+a.dataset.epg2,a.dataset.tag,'crit')).catch(()=>toast('No se pudo cargar el esquema'));
+});
 b.onclick=()=>{ef={sel:'rc',q:'',more:{}};load().then(()=>elecModal()).catch(e=>toast('No se pudo cargar el esquema eléctrico: '+((e&&e.message)||'error')))};
 
 modal.addEventListener('change',e=>{if(modalKind==='elec'&&e.target.id==='elSel'){ef.sel=e.target.value;elecModal()}});
@@ -140,7 +151,7 @@ function getDoc(file){
 function locate(pg){const d=cur();const s=d.pdf.find(x=>pg>=x.a&&pg<=x.b);return s?[s.f,pg-s.a+1]:null}
 function pvShell(){
   const d=cur();
-  modal.innerHTML=`<div class="mh"><button class="mini" id="pvBack" style="margin:0">← Lista de piezas</button><h2>Esquema · ${esc(M.name)}</h2><span class="crumb" id="pvTag"></span>
+  modal.innerHTML=`<div class="mh"><button class="mini" id="pvBack" style="margin:0">${pv.from==='crit'?'← Críticos':'← Lista de piezas'}</button><h2>Esquema · ${esc(M.name)}</h2><span class="crumb" id="pvTag"></span>
   <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><button class="mini" id="pvPrev" style="margin:0" aria-label="Hoja anterior">◀</button><span class="crumb">pág. <input id="pvNum" type="number" min="1" max="${d.n}" value="${pv.page}" style="width:64px;padding:3px 5px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink)"> / ${d.n}</span><button class="mini" id="pvNext" style="margin:0" aria-label="Hoja siguiente">▶</button><button class="mini" id="pvZm" style="margin:0" aria-label="Alejar">−</button><button class="mini" id="pvZf" style="margin:0">Ajustar</button><button class="mini" id="pvZp" style="margin:0" aria-label="Acercar">+</button></span><button class="x" data-close aria-label="Cerrar" style="margin-left:6px">✕</button></div>
   <div id="pvWrap" style="overflow:auto;max-height:80vh;min-height:300px;background:var(--soft);position:relative;-webkit-overflow-scrolling:touch"><div id="pvMsg" class="crumb" style="padding:16px">Cargando esquema…</div></div>`;
   ov.classList.add('on');
@@ -192,7 +203,7 @@ async function renderPdf(first){
 function go(p){const d=cur();p=Math.max(1,Math.min(d.n,p));if(p===pv.page)return;pv.page=p;pv.tag='';renderPdf()}
 modal.addEventListener('click',e=>{
   if(modalKind!=='pdf')return;const t=e.target;
-  if(t.id==='pvBack')return elecModal();
+  if(t.id==='pvBack')return pv.from==='crit'?critModal():elecModal();
   if(t.id==='pvPrev')return go(pv.page-1);
   if(t.id==='pvNext')return go(pv.page+1);
   if(t.id==='pvZp'){pv.z=Math.min(6,pv.z*1.4);return renderPdf()}
