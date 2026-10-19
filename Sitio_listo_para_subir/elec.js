@@ -5,7 +5,7 @@ if(typeof M==='undefined'||!window.ELECFETCH||!window.PDFFETCH)return;
 if(window.__elecLoaded)return;window.__elecLoaded=1;
 const PDFJS='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const EL={data:null,loading:null,libs:null,docs:{}};
-let ef={sel:'all',q:'',more:{}};
+let ef={sel:'rc',q:'',more:{}};
 let pv={page:1,tag:'',z:1,tok:0,from:'list'};
 
 const Kn=s=>{const d=String(s==null?'':s).replace(/\D/g,'').replace(/^0+/,'');return d||K(s)};
@@ -22,9 +22,27 @@ function load(){
   return EL.loading;
 }
 const cur=()=>EL.data&&M&&EL.data[M.id];
+
+// críticos eléctricos: lista guardada en la base (se actualiza al subir el Excel RC); si no existe, la marca RC del esquema
+EL.rc={};EL.rcdoc={};EL.sub={};
+function watchRc(){
+  if(!M||typeof DB==='undefined'||!DB||EL.sub[M.id])return;
+  const m=M;EL.sub[m.id]=1;
+  try{DB.doc('shared/critel'+(m.suffix||'')).onSnapshot(s=>{const d=s.exists?s.data():null;
+    EL.rcdoc[m.id]=d&&d.codes?d.codes:null;EL.rc[m.id]=d&&d.codes?new Set(Object.keys(d.codes).map(Kn)):null;
+    if(M&&M.id===m.id){upd();if(ov.classList.contains('on')&&modalKind==='elec')elecModal(true)}},()=>{EL.sub[m.id]=0})}catch(e){EL.sub[m.id]=0}
+}
+const isRC=p=>{const s=EL.rc[M.id];return s?s.has(Kn(p.k)):!!p.x};
+function allParts(){
+  const d=cur(),doc=EL.rcdoc[M.id];if(!doc)return d.parts;
+  const have=new Set(d.parts.map(p=>Kn(p.k)));
+  const extra=Object.values(doc).filter(c=>!have.has(Kn(c))).map(c=>({k:String(c),d:'(no figura en la lista de piezas del esquema)',f:'',m:'',l:[],x:1}));
+  return extra.length?d.parts.concat(extra):d.parts;
+}
 function upd(){
+  watchRc();
   const d=cur();b.hidden=!(M&&d);if(!d)return;
-  document.getElementById('nElec').textContent=d.parts.length;
+  document.getElementById('nElec').textContent=allParts().filter(isRC).length;
 }
 load().then(upd).catch(()=>{});
 const _sel=selectMachine;selectMachine=function(id){_sel(id);upd()};
@@ -36,10 +54,10 @@ if(M)upd();
 function critIdx(){const m=new Map();CRIT.forEach(c=>{const k=Kn(c.code);if(!m.has(k))m.set(k,[]);m.get(k).push(c)});return m}
 function filtered(ci){
   const d=cur(),q=norm(ef.q);
-  return d.parts.filter(p=>{
+  return allParts().filter(p=>{
     const cs=ci.get(Kn(p.k))||[];
-    if(ef.sel==='rc'&&!p.x)return false;
-    if(ef.sel==='rcno'&&!(p.x&&!cs.length))return false;
+    if(ef.sel==='rc'&&!isRC(p))return false;
+    if(ef.sel==='rcno'&&!(isRC(p)&&!cs.length))return false;
     if(ef.sel==='inlist'&&!cs.length)return false;
     if(ef.sel==='nosap'&&!(cs.length&&cs.every(c=>!c.sap)))return false;
     if(ef.sel==='s0'&&!cs.some(c=>c.sap&&c.hasRow&&!c.stock))return false;
@@ -57,16 +75,16 @@ function elecModal(refresh){
   modalKind='elec';
   const ae=document.activeElement,aid=ae&&ae.id&&modal.contains(ae)?ae.id:'',asel=aid&&ae.selectionStart!=null?ae.selectionStart:0;
   const ci=critIdx(),list=filtered(ci);
-  const nrc=d.parts.filter(p=>p.x).length,nin=d.parts.filter(p=>ci.has(Kn(p.k))).length,pend=d.parts.filter(p=>p.x&&!ci.has(Kn(p.k)));
+  const nrc=allParts().filter(p=>isRC(p)).length,nin=allParts().filter(p=>ci.has(Kn(p.k))).length,pend=allParts().filter(p=>isRC(p)&&!ci.has(Kn(p.k)));
   const rows=list.map(p=>{
     const cs=ci.get(Kn(p.k))||[];
     let st='';
     if(cs.length)st=cs.map(c=>`<b style="color:var(--crit-ink)">★ en críticos</b>${c.sap?' · SAP '+esc(c.sap)+(c.hasRow?' · stock '+(c.stock===0?'<span class="z">0</span>':fmtQ(c.stock)):''):' · <span class="gr">sin SAP</span>'}`).join('<br>')+`<br><a class="gr" data-gocrit="${esc(p.k)}" style="cursor:pointer;text-decoration:underline">ver / editar SAP</a>`;
-    else st=(p.x?'<span class="gr">Marcada RC en el Excel</span><br>':'')+(CAN?`<button class="mini" data-eadd="${esc(p.k)}">★ Añadir a críticos</button>`:'');
-    return `<tr${p.x?' class="crit"':''}><td class="n">${p.x?'<b style="color:var(--crit-ink)" title="Marcada como repuesto crítico (RC) en el Excel">★</b>':''}</td><td class="code">${esc(p.k)}</td><td>${esc(p.d)}</td><td>${esc(p.f)}${p.m?'<br><span class="gr">'+esc(p.m)+'</span>':''}</td><td>${locHtml(p)}</td><td>${st}</td></tr>`}).join('');
-  modal.innerHTML=`<div class="mh"><div><h2>⚡ Esquema eléctrico · ${esc(M.name)}</h2><div class="crumb">${d.parts.length} piezas distintas · ${nrc} marcadas RC en el Excel · ${nin} ya en la lista de críticos${pend.length?' · '+pend.length+' críticas aún sin añadir':''}</div></div><button class="mini" id="elBook" title="Abrir el PDF completo">📖 Abrir esquema</button><button class="x" data-close aria-label="Cerrar">✕</button></div>
-  <div class="fbar"><select id="elSel" aria-label="Filtro"><option value="all">Todas las piezas</option><option value="rc">Solo críticas (RC)</option><option value="rcno">Críticas aún no añadidas a la lista</option><option value="inlist">Ya en la lista de críticos</option><option value="nosap">En la lista, sin SAP</option><option value="s0">Con SAP y stock 0</option></select><input id="elQ" type="search" placeholder="Buscar código, nombre, fabricante o tag…" value="${esc(ef.q)}" style="flex:1;min-width:180px"><span class="crumb">${list.length} de ${d.parts.length}</span><button id="elCsv">⬇ CSV</button>${CAN&&pend.length?`<button id="elAddAll" class="mini go" style="margin:0">★ Añadir las ${pend.length} críticas a la lista</button>`:''}</div>
-  <div class="tbl" style="max-height:72vh"><table><thead><tr><th style="top:0" class="n">RC</th><th style="top:0">Código KHS</th><th style="top:0">Denominación</th><th style="top:0">Fabricante / modelo</th><th style="top:0">Dónde está en el esquema</th><th style="top:0">Lista de críticos · SAP · stock</th></tr></thead><tbody>${rows||'<tr><td colspan="6" class="gr" style="padding:16px">Nada con ese filtro.</td></tr>'}</tbody></table></div>`;
+    else st=(isRC(p)?'<b style="color:var(--crit-ink)">⚡ Crítico eléctrico (RC)</b><br>':'')+(CAN?`<button class="mini" data-eadd="${esc(p.k)}" title="Añadir también a la lista de críticos mecánicos">★ Copiar a críticos mecánicos</button>`:'');
+    return `<tr${isRC(p)?' class="crit"':''}><td class="n">${isRC(p)?'<b style="color:var(--crit-ink)" title="Marcada como repuesto crítico (RC) en el Excel">★</b>':''}</td><td class="code">${esc(p.k)}</td><td>${esc(p.d)}</td><td>${esc(p.f)}${p.m?'<br><span class="gr">'+esc(p.m)+'</span>':''}</td><td>${locHtml(p)}</td><td>${st}</td></tr>`}).join('');
+  modal.innerHTML=`<div class="mh"><div><h2>⚡ Esquema eléctrico · ${esc(M.name)}</h2><div class="crumb">${nrc} críticos eléctricos (RC) · ${allParts().length} piezas distintas en el esquema${nin?' · '+nin+' también en la lista de críticos mecánicos':''}</div></div><button class="mini" id="elBook" title="Abrir el PDF completo">📖 Abrir esquema</button><button class="x" data-close aria-label="Cerrar">✕</button></div>
+  <div class="fbar"><select id="elSel" aria-label="Filtro"><option value="rc">⚡ Críticos eléctricos (RC)</option><option value="all">Todas las piezas del esquema</option><option value="inlist">También en críticos mecánicos</option></select><input id="elQ" type="search" placeholder="Buscar código, nombre, fabricante o tag…" value="${esc(ef.q)}" style="flex:1;min-width:180px"><span class="crumb">${list.length} de ${allParts().length}</span><button id="elCsv">⬇ CSV</button></div>
+  <div class="tbl" style="max-height:72vh"><table><thead><tr><th style="top:0" class="n">RC</th><th style="top:0">Código KHS</th><th style="top:0">Denominación</th><th style="top:0">Fabricante / modelo</th><th style="top:0">Dónde está en el esquema</th><th style="top:0">Estado</th></tr></thead><tbody>${rows||'<tr><td colspan="6" class="gr" style="padding:16px">Nada con ese filtro.</td></tr>'}</tbody></table></div>`;
   document.getElementById('elSel').value=ef.sel;
   if(aid){const el=document.getElementById(aid);if(el){el.focus();if(el.setSelectionRange&&asel!=null)try{el.setSelectionRange(asel,asel)}catch(e){}}}
   ov.classList.add('on');
@@ -75,7 +93,7 @@ function csv(){
   const d=cur(),ci=critIdx(),list=filtered(ci);
   const h=['RC (Excel)','Código KHS','Denominación','Fabricante','Modelo','Ubicación en el esquema (tag · página PDF)','En lista de críticos','Nº SAP','Stock'];
   dlCsv('esquema_electrico_'+M.id+'.csv',h,list.map(p=>{const cs=ci.get(Kn(p.k))||[];
-    return [p.x?'x':'',p.k,p.d,p.f,p.m,p.l.map(l=>l.t+(l.p?' · pág. '+l.p:'')).join(' | '),cs.length?'sí':'',cs.map(c=>c.sap).filter(Boolean).join(' | '),cs.map(c=>c.hasRow?c.stock:'').join(' | ')]}));
+    return [isRC(p)?'x':'',p.k,p.d,p.f,p.m,p.l.map(l=>l.t+(l.p?' · pág. '+l.p:'')).join(' | '),cs.length?'sí':'',cs.map(c=>c.sap).filter(Boolean).join(' | '),cs.map(c=>c.hasRow?c.stock:'').join(' | ')]}));
 }
 function addToCrit(parts){
   const ch={},ci=critIdx();let n=0;
@@ -85,7 +103,12 @@ function addToCrit(parts){
   saveItems(ch);
   toast(n===1?'Añadida a críticos. Pon su Nº SAP en la lista de críticos para ver el stock.':n+' piezas añadidas a la lista de críticos. Falta cruzarlas con su Nº SAP.');
 }
-b.onclick=()=>{ef={sel:'all',q:'',more:{}};load().then(()=>elecModal()).catch(e=>toast('No se pudo cargar el esquema eléctrico: '+((e&&e.message)||'error')))};
+window.ELECSAVE=async(codes,meta)=>{
+  const id='shared/critel'+(M.suffix||'');
+  await DB.doc(id).set({codes,meta});
+  EL.rcdoc[M.id]=codes;EL.rc[M.id]=new Set(Object.keys(codes).map(Kn));upd();
+};
+b.onclick=()=>{ef={sel:'rc',q:'',more:{}};load().then(()=>elecModal()).catch(e=>toast('No se pudo cargar el esquema eléctrico: '+((e&&e.message)||'error')))};
 
 modal.addEventListener('change',e=>{if(modalKind==='elec'&&e.target.id==='elSel'){ef.sel=e.target.value;elecModal()}});
 modal.addEventListener('input',e=>{if(modalKind==='elec'&&e.target.id==='elQ'){ef.q=e.target.value;elecModal(true)}});
@@ -93,10 +116,9 @@ modal.addEventListener('click',e=>{
   if(modalKind!=='elec')return;const t=e.target;
   if(t.id==='elCsv')return csv();
   if(t.id==='elBook')return openPdf(1,'','list');
-  if(t.id==='elAddAll'){const ci=critIdx();return addToCrit(cur().parts.filter(p=>p.x&&!ci.has(Kn(p.k))))}
   const a=t.closest('[data-epg]');if(a)return openPdf(+a.dataset.epg,a.dataset.tag,'list');
   const mo=t.closest('[data-emore]');if(mo){ef.more[mo.dataset.emore]=1;return elecModal(true)}
-  const ad=t.closest('[data-eadd]');if(ad){const p=cur().parts.find(x=>x.k===ad.dataset.eadd);if(p)addToCrit([p]);return}
+  const ad=t.closest('[data-eadd]');if(ad){const p=allParts().find(x=>x.k===ad.dataset.eadd);if(p)addToCrit([p]);return}
   const g=t.closest('[data-gocrit]');if(g){cf={sel:'all',q:g.dataset.gocrit,edit:null,del:null};return critModal()}
 });
 
