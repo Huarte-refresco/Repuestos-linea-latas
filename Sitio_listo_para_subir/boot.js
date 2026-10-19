@@ -49,6 +49,15 @@ window.PACKFETCH=async(id,pk)=>{
   if(r.error)throw r.error;return JSON.parse(await r.data.text());
 };
 
+window.ELECFETCH=async()=>{
+  const r=await sb.storage.from('mapa').download('elec.json');
+  if(r.error)throw r.error;return JSON.parse(await r.data.text());
+};
+window.PDFFETCH=async f=>{
+  const r=await sb.storage.from('mapa').download(f);
+  if(r.error)throw r.error;return await r.data.arrayBuffer();
+};
+
 // ---------- Arranque tras iniciar sesión ----------
 let started=false;
 async function start(session){
@@ -67,7 +76,9 @@ async function start(session){
   const out=document.createElement('button');out.className='cbtn ghost';out.textContent='Salir ('+EMAIL+')';out.title='Cerrar sesión';
   out.onclick=async()=>{await sb.auth.signOut();location.reload()};
   document.querySelector('header .btns').appendChild(out);
-  const s=document.createElement('script');s.src='app.js?v='+(CFG.v||'1');document.body.appendChild(s);
+  const s=document.createElement('script');s.src='app.js?v='+(CFG.v||'1');
+  s.onload=()=>{const e=document.createElement('script');e.src='elec.js?v='+(CFG.v||'1');document.body.appendChild(e)};
+  document.body.appendChild(s);
   setInterval(poll,20000);
   try{sb.channel('kv-watch').on('postgres_changes',{event:'*',schema:'public',table:'kv'},()=>poll()).subscribe()}catch(e){}
 }
