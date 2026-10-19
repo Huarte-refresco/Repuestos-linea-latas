@@ -45,6 +45,7 @@ window.CRITEXTRA=()=>{
     return {key:'el~'+p.k,code:p.k,desc:(p.d+(p.f?' · '+p.f:'')+(p.m?' '+p.m:'')).trim(),sap:'',match:'',src:[],occ:[],stock:null,ub:'',pp:null,cq:null,hasRow:false,elec:true,epg:l?l.p:0,etag:l?l.t:''}});
 };
 const refCrit=()=>{if(ov.classList.contains('on')&&modalKind==='crit')critModal(true)};
+window.ELECCUR=()=>{try{return EL.data&&EL.data[M.id]?allParts().filter(isRC).map(p=>({code:p.k,desc:p.d})):null}catch(e){return null}};
 function upd(){
   watchRc();
   const d=cur();b.hidden=!(M&&d);if(!d)return;
