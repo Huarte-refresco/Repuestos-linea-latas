@@ -2,6 +2,7 @@
    Se carga después de app.js y usa sus variables globales (M, N, CRIT, CRITMAP, modal, ov, CAN...). */
 (function(){
 if(typeof M==='undefined'||!window.ELECFETCH||!window.PDFFETCH)return;
+if(window.__elecLoaded)return;window.__elecLoaded=1;
 const PDFJS='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const EL={data:null,loading:null,libs:null,docs:{}};
 let ef={sel:'all',q:'',more:{}};

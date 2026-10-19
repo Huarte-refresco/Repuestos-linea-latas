@@ -59,8 +59,13 @@ window.PDFFETCH=async f=>{
 };
 
 // ---------- Arranque tras iniciar sesión ----------
-let started=false;
+let started=false,starting=false;
 async function start(session){
+  if(started||starting)return;
+  starting=true;
+  try{await start2(session)}finally{starting=false}
+}
+async function start2(session){
   if(started)return;
   EMAIL=(session.user.email||'').toLowerCase();
   say('Comprobando acceso…');
