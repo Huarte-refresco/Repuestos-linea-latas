@@ -3,6 +3,7 @@ const LINE=window.__DATA.LINE;
 // Datos de la máquina activa
 let M=null,N=[],ROOT=0,VIEWS=[],CODEIDX=new Map(),EQUIPO='',totalParts=0,wear=[];
 // RAW fila: [l,pos,code,desc,qty,unit,mark,hours,obs,parent,pages]
+const PTX=window.PTX={on:false,cnt:()=>0};
 const ST={};
 MACH.forEach(m=>{ST[m.id]={critmap:m.seed.crit.items||{},critmeta:m.seed.crit.meta||{},stockrows:m.seed.stock.rows||{},stockmeta:m.seed.stock.meta||{},spots:null}});
 const dp=k=>'shared/'+k+(M.suffix||'');
@@ -13,6 +14,7 @@ const K=c=>String(c==null?'':c).replace(/\s+/g,'').toUpperCase();
 const fmtQ=q=>q==null||q===''?'':(Math.round(q*1000)/1000).toString().replace('.',',');
 const fmtD=iso=>{try{return new Date(iso).toLocaleString('es-ES',{dateStyle:'short',timeStyle:'short'})}catch(e){return ''}};
 const critKey=(code,sap)=>(K(code)+'~'+(sap||'x')).replace(/[^A-Za-z0-9_\-.~:@+]/g,'_').slice(0,190);
+const cb2=n=>PTX.on?(PTX.cnt(n)?`<span class="cb2 pb">🛠${PTX.cnt(n)}</span>`:''):(n.cc?`<span class="cb2">★${n.cc}</span>`:'');
 function leaves(id,acc=[]){const n=N[id];n.kids.forEach(k=>{if(N[k].kids.length)leaves(k,acc);else acc.push(k)});return acc}
 function path(id){const p=[];let c=id;while(c!=null&&c>=0){if(N[c].l>=2)p.unshift(c);c=N[c].parent}return p}
 function pathTxt(id){return path(id).map(i=>N[i].pos+' '+N[i].desc).join(' › ')}
@@ -112,8 +114,8 @@ function fillPlan(p,v){
     const n=N[s.id];const d=document.createElement('div');
     d.className='hs'+(s.est?' est':'')+(n.kids.length?'':' leaf');d.textContent=n.pos;
     d.style.left=s.x+'%';d.style.top=s.y+'%';
-    if(n.cc){const b=document.createElement('span');b.className='cb';b.textContent='★'+n.cc;d.appendChild(b)}
-    d.addEventListener('mouseenter',()=>{tip.textContent=n.pos+' · '+n.desc+(n.kids.length?' ('+leaves(n.id).length+' piezas)':'')+(n.cc?' · ★ '+n.cc+' críticas':'');tip.style.display='block'});
+    {const bc=PTX.on?PTX.cnt(n):n.cc;if(bc){const b=document.createElement('span');b.className='cb'+(PTX.on?' pb':'');b.textContent=(PTX.on?'🛠':'★')+bc;d.appendChild(b)}}
+    d.addEventListener('mouseenter',()=>{tip.textContent=n.pos+' · '+n.desc+(n.kids.length?' ('+leaves(n.id).length+' piezas)':'')+(PTX.on?(PTX.cnt(n)?' · 🛠 '+PTX.cnt(n)+' en la parada':''):(n.cc?' · ★ '+n.cc+' críticas':''));tip.style.display='block'});
     d.addEventListener('mousemove',()=>{tip.style.left=d.offsetLeft+'px';tip.style.top=d.offsetTop+'px'});
     d.addEventListener('mouseleave',()=>{tip.style.display='none'});
     let sx,sy,moved=false;
@@ -136,7 +138,7 @@ function drawPlan(){
   const p=$('#plan');
   if(!VIEWS.length){
     p.className='plan';
-    p.innerHTML='<div class="grid">'+N[ROOT].kids.map(k=>{const n=N[k];const c=n.kids.length?leaves(k).length:1;return `<div class="g" data-id="${k}"><b>${n.pos}</b><span class="d">${esc(n.desc)}</span><span class="p">${esc(n.code)}</span><span class="c">${c} pz${n.cc?`<span class="cb2">★${n.cc}</span>`:''}</span></div>`}).join('')+'</div>';
+    p.innerHTML='<div class="grid">'+N[ROOT].kids.map(k=>{const n=N[k];const c=n.kids.length?leaves(k).length:1;return `<div class="g" data-id="${k}"><b>${n.pos}</b><span class="d">${esc(n.desc)}</span><span class="p">${esc(n.code)}</span><span class="c">${c} pz${cb2(n)}</span></div>`}).join('')+'</div>';
     p.style.userSelect='auto';
     $('#planNote').innerHTML='Esta máquina todavía no tiene plano general con puntos; entra por los grupos. <b style="color:var(--crit-ink)">★n</b> = n repuestos críticos dentro.';
     return}
@@ -159,15 +161,15 @@ function drawPlan(){
     const rest=N[ROOT].kids.filter(k=>!shown.has(k));
     if(rest.length){
       const o=document.createElement('div');o.className='blk';
-      o.innerHTML='<div class="gh"><b>Otros grupos sin plano con puntos</b><span class="gr">pulsa para abrir su despiece</span></div><div class="grid">'+rest.map(k=>{const n=N[k];const c=n.kids.length?leaves(k).length:1;return `<div class="g" data-id="${k}"><b>${n.pos}</b><span class="d">${esc(n.desc)}</span><span class="p">${esc(n.code)}</span><span class="c">${c} pz${n.cc?`<span class="cb2">★${n.cc}</span>`:''}</span></div>`}).join('')+'</div>';
+      o.innerHTML='<div class="gh"><b>Otros grupos sin plano con puntos</b><span class="gr">pulsa para abrir su despiece</span></div><div class="grid">'+rest.map(k=>{const n=N[k];const c=n.kids.length?leaves(k).length:1;return `<div class="g" data-id="${k}"><b>${n.pos}</b><span class="d">${esc(n.desc)}</span><span class="p">${esc(n.code)}</span><span class="c">${c} pz${cb2(n)}</span></div>`}).join('')+'</div>';
       p.appendChild(o);
     }
-    $('#planNote').innerHTML='Vista general: todos los módulos con sus puntos. Un clic en un punto abre ese subconjunto. <b>Naranja</b> = subconjunto, <b style="color:var(--blue)">azul</b> = pieza suelta, <b style="color:var(--crit-ink)">★n</b> = n repuestos críticos dentro.';
+    $('#planNote').innerHTML=(PTX.on?PTX.note:'')+'Vista general: todos los módulos con sus puntos. Un clic en un punto abre ese subconjunto. <b>Naranja</b> = subconjunto, <b style="color:var(--blue)">azul</b> = pieza suelta, <b style="color:var(--crit-ink)">★n</b> = n repuestos críticos dentro.';
     return}
   const v=VIEWS[curView];p.className='plan';p.innerHTML='';
   fillPlan(p,v);loadImgs(p,M);
   const est=v.spots.filter(s=>s.est).length;
-  $('#planNote').innerHTML='Un clic abre el subconjunto. <b>Naranja</b> = subconjunto, <b style="color:var(--blue)">azul</b> = pieza suelta, <b style="color:var(--crit-ink)">★n</b> = n repuestos críticos dentro. '+(CAN?'Las posiciones que muevas se guardan para todos.':'Las posiciones las guarda quien tenga permiso de edición.')+(est?` ${est} puntos con borde discontinuo están sin colocar o estimados.`:'');
+  $('#planNote').innerHTML=(PTX.on?PTX.note:'')+'Un clic abre el subconjunto. <b>Naranja</b> = subconjunto, <b style="color:var(--blue)">azul</b> = pieza suelta, <b style="color:var(--crit-ink)">★n</b> = n repuestos críticos dentro. '+(CAN?'Las posiciones que muevas se guardan para todos.':'Las posiciones las guarda quien tenga permiso de edición.')+(est?` ${est} puntos con borde discontinuo están sin colocar o estimados.`:'');
 }
 $('#plan').addEventListener('click',e=>{const b=e.target.closest('[data-og]');if(b)openNode(+b.dataset.og)});
 function saveSpot(v,s){
@@ -183,7 +185,7 @@ function applySpots(d){
 // ---------- Lista de grupos / buscador ----------
 function drawGroups(){
   $('#groups').innerHTML=N[ROOT].kids.map(k=>{const n=N[k];const c=n.kids.length?leaves(k).length:1;
-    return `<div class="it" data-id="${k}"><b>${n.pos}</b><span class="d">${esc(n.desc)}<span class="p">${esc(n.code)}</span></span><span class="c">${c} pz${n.cc?`<span class="cb2">★${n.cc}</span>`:''}</span></div>`}).join('');
+    return `<div class="it" data-id="${k}"><b>${n.pos}</b><span class="d">${esc(n.desc)}<span class="p">${esc(n.code)}</span></span><span class="c">${c} pz${cb2(n)}</span></div>`}).join('');
 }
 $('#plan').addEventListener('click',e=>{const g=e.target.closest('.g');if(!g)return;const id=+g.dataset.id;N[id].kids.length?openNode(id):openNode(ROOT,id)});
 $('#groups').onclick=e=>{const it=e.target.closest('.it');if(!it)return;const id=+it.dataset.id;N[id].kids.length?openNode(id):openNode(ROOT,id)};
@@ -213,10 +215,10 @@ function actBtn(n){
 function row(n,ind){
   const isA=n.kids.length>0;
   const cr=n.crit.map(i=>CRIT[i]);
-  const ci=critInfo(n)+actBtn(n);
+  const ci=PTX.on?PTX.info(n):critInfo(n)+actBtn(n);
   if(isA){const c=leaves(n.id).length;
-    return `<tr class="asm${cr.length?' crit':''}" data-open="${n.id}" data-row="${n.id}"><td class="n">${n.pos}</td><td class="code">${esc(n.code)}</td><td style="padding-left:${8+ind*14}px">▸ ${esc(n.desc)}${ci}</td><td class="n">${fmtQ(n.qty)}</td><td></td><td class="n"></td><td><span class="open">abrir · ${c} pz${n.pages.length?' · p.'+n.pages[0]:''}</span>${n.cc?`<span class="cb2">★${n.cc}</span>`:''}</td></tr>`}
-  return `<tr data-row="${n.id}" class="${(n.mark==='V'?'v ':'')+(cr.length?'crit':'')}"><td class="n">${n.pos}</td><td class="code">${esc(n.code)}</td><td style="padding-left:${8+ind*14}px">${esc(n.desc)}${ci}</td><td class="n">${fmtQ(n.qty)}</td><td>${n.mark?`<span class="tag ${n.mark}">${n.mark}</span>`:''}</td><td class="n">${n.hours?n.hours.toLocaleString('es-ES'):''}</td><td style="text-align:center">${n.obs==='J'?'✓':''}</td></tr>`;
+    return `<tr class="asm${PTX.on?PTX.cls(n):(cr.length?' crit':'')}" data-open="${n.id}" data-row="${n.id}"><td class="n">${n.pos}</td><td class="code">${esc(n.code)}</td><td style="padding-left:${8+ind*14}px">▸ ${esc(n.desc)}${ci}</td><td class="n">${fmtQ(n.qty)}</td><td></td><td class="n"></td><td><span class="open">abrir · ${c} pz${n.pages.length?' · p.'+n.pages[0]:''}</span>${cb2(n)}</td></tr>`}
+  return `<tr data-row="${n.id}" class="${(n.mark==='V'?'v ':'')+(PTX.on?PTX.cls(n):(cr.length?'crit':''))}"><td class="n">${n.pos}</td><td class="code">${esc(n.code)}</td><td style="padding-left:${8+ind*14}px">${esc(n.desc)}${ci}</td><td class="n">${fmtQ(n.qty)}</td><td>${n.mark?`<span class="tag ${n.mark}">${n.mark}</span>`:''}</td><td class="n">${n.hours?n.hours.toLocaleString('es-ES'):''}</td><td style="text-align:center">${n.obs==='J'?'✓':''}</td></tr>`;
 }
 function csvQ(v){return '"'+String(v==null?'':v).replace(/"/g,'""')+'"'}
 function dlCsv(name,h,rows){saveFile(name,'\ufeff'+[h].concat(rows).map(r=>r.map(csvQ).join(';')).join('\n'))}
@@ -232,6 +234,7 @@ function csvList(){
 }
 function inSub(o,r){let p=o;while(p!=null&&p>=0){if(p===r)return true;p=N[p].parent}return false}
 function subCrit(){
+  if(PTX.on)return PTX.sub(cur);
   const ids=[...N[cur].cs];if(!ids.length)return '';
   let rows='';
   ids.forEach(i=>{const c=CRIT[i];
@@ -245,7 +248,7 @@ function renderNode(){
   const crumb=['<a data-go="'+ROOT+'">'+esc(M.short)+'</a>'].concat(pth.map((i,k)=>k===pth.length-1?esc(N[i].pos+' '+N[i].desc):`<a data-go="${i}">${esc(N[i].pos+' '+N[i].desc)}</a>`)).join(' › ');
   let body='';
   if(flat){
-    const walk2=(id,d)=>{N[id].kids.forEach(k=>{const c=N[k];if(c.kids.length){body+=`<tr class="asm${c.crit.length?' crit':''}" data-open="${c.id}" data-row="${c.id}"><td class="n">${c.pos}</td><td class="code">${esc(c.code)}</td><td style="padding-left:${8+d*14}px">▸ ${esc(c.desc)}${critInfo(c)}${actBtn(c)}</td><td class="n">${fmtQ(c.qty)}</td><td></td><td></td><td><span class="open">abrir${c.pages.length?' · p.'+c.pages[0]:''}</span>${c.cc?`<span class="cb2">★${c.cc}</span>`:''}</td></tr>`;walk2(k,d+1)}else body+=row(c,d)})};
+    const walk2=(id,d)=>{N[id].kids.forEach(k=>{const c=N[k];if(c.kids.length){body+=`<tr class="asm${PTX.on?PTX.cls(c):(c.crit.length?' crit':'')}" data-open="${c.id}" data-row="${c.id}"><td class="n">${c.pos}</td><td class="code">${esc(c.code)}</td><td style="padding-left:${8+d*14}px">▸ ${esc(c.desc)}${PTX.on?PTX.info(c):critInfo(c)+actBtn(c)}</td><td class="n">${fmtQ(c.qty)}</td><td></td><td></td><td><span class="open">abrir${c.pages.length?' · p.'+c.pages[0]:''}</span>${cb2(c)}</td></tr>`;walk2(k,d+1)}else body+=row(c,d)})};
     walk2(cur,0)}
   else body=n.kids.map(k=>row(N[k],0)).join('');
   const lv=leaves(cur),nv=lv.filter(i=>N[i].mark==='V').length;
@@ -256,7 +259,7 @@ function renderNode(){
   const keepScroll=modal.querySelector('.tbl')?modal.querySelector('.tbl').scrollTop:0;
   modal.innerHTML=`<div class="mh"><div><h2>${esc(n.pos)} · ${esc(n.desc)}</h2><div class="crumb">${crumb} · <span class="code">${esc(n.code)}</span></div></div><button class="x" data-close aria-label="Cerrar">✕</button></div>
   <div class="mb"><div class="pic${zoom?' zoom':''}" id="pic">${pic}</div>
-  <div class="tbl"><div class="tt"><label><input type="checkbox" id="chFlat" ${flat?'checked':''}> Ver todos los niveles</label><span class="sum">${lv.length} piezas · ${nv} de desgaste${n.cc?` · <b style="color:var(--crit-ink)">★ ${n.cc} críticas</b>`:''}</span></div>
+  <div class="tbl"><div class="tt"><label><input type="checkbox" id="chFlat" ${flat?'checked':''}> Ver todos los niveles</label><span class="sum">${lv.length} piezas · ${nv} de desgaste${PTX.on?(PTX.cnt(n)?` · <b style="color:var(--blue)">🛠 ${PTX.cnt(n)} en la parada</b>`:''):(n.cc?` · <b style="color:var(--crit-ink)">★ ${n.cc} críticas</b>`:'')}</span>${PTX.on?PTX.head(n):''}</div>
   ${subCrit()}<div class="legend"><i style="background:var(--wear)"></i>Pieza de desgaste (V) con duración en horas<i style="background:var(--crit)"></i>Repuesto crítico<i style="background:var(--tag-e)"></i>E = pieza de repuesto<span style="margin-left:10px">✓ = KHS recomienda tener stock</span></div>
   <table><thead><tr><th class="n">Pos.</th><th>Código</th><th>Descripción</th><th class="n">Uds</th><th>Tipo</th><th class="n">Duración (h)</th><th>Stock cliente</th></tr></thead><tbody>${body||'<tr><td colspan="7" class="nopic">Sin componentes</td></tr>'}</tbody></table></div></div>`;
   loadImgs(modal,M);
