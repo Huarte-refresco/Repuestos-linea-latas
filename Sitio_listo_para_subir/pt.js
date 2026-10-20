@@ -11,7 +11,8 @@ const mcls=m=>{m=String(m||'').toUpperCase();if(!m)return '';const c=m[0];if(c==
 const mtitle=m=>{const f=MARKS.find(x=>x[0]===m);return f?f[1]:m};
 
 // ---------- estado ----------
-const PT={docs:{},sub:{},mode:'crit',view:'sel',open:{},f:{stop:null,cls:'',stk:'',q:'',all:false,pend:false,gap:''},up:null};
+const PT={docs:{},sub:{},mode:'crit',view:'sel',open:{},ver:{},auto:true,f:{stop:null,cls:'',stk:'',q:'',all:false,pend:false,gap:''},up:null};
+try{if(localStorage.getItem('ptAuto')==='0')PT.auto=false}catch(e){}
 try{const v=localStorage.getItem('ptMode');if(v==='pt')PT.mode='pt';const w=localStorage.getItem('ptView');if(['sel','plan','hist'].includes(w))PT.view=w}catch(e){}
 const doc=()=>M&&PT.docs[M.id]||null;
 const stopsOf=d=>(d&&d.stops)||[];
@@ -105,7 +106,7 @@ const subnav=document.createElement('div');subnav.id='ptSub';subnav.hidden=true;
 document.getElementById('info').insertAdjacentElement('afterend',subnav);
 subnav.onclick=e=>{const b=e.target.closest('[data-w]');if(!b)return;PT.view=b.dataset.w;try{localStorage.setItem('ptView',PT.view)}catch(_){}sync()};
 function drawSub(){
-  const n=Object.keys((PS.docs[M.id]&&PS.docs[M.id].sel)||{}).length,d=doc();
+  let n=0;try{n=Object.keys(psEff()).length}catch(e){}const d=doc();
   subnav.innerHTML=[['sel','🗺 Seleccionar en el plano'],['plan','📋 Plan de la parada ('+n+')'],['hist','📊 Historial y Excel']].map(([k,t])=>`<button type="button" data-w="${k}" class="${PT.view===k?'on':''}">${t}</button>`).join('')+`<span class="ptmeta">${d&&d.next?'Próxima parada: <b>'+esc(d.next)+'</b>':'Aún sin libro de operaciones cargado'}</span>`;
 }
 function sync(){
@@ -129,7 +130,7 @@ const _od=onData;onData=function(){_od();if(M&&PT.mode==='pt'){drawSub();if(!vie
 
 function watch(){
   if(!M||PT.sub[M.id])return;const m=M;PT.sub[m.id]=1;
-  try{DB.doc('shared/pt'+(m.suffix||'')).onSnapshot(s=>{PT.docs[m.id]=s.exists?s.data():null;if(M&&M.id===m.id&&PT.mode==='pt'&&!PT.busy&&!view.hidden){drawSub();render()}},()=>{PT.sub[m.id]=0})}catch(e){PT.sub[m.id]=0}
+  try{DB.doc('shared/pt'+(m.suffix||'')).onSnapshot(s=>{PT.docs[m.id]=s.exists?s.data():null;PT.ver[m.id]=(PT.ver[m.id]||0)+1;PS.I=null;if(M&&M.id===m.id&&PT.mode==='pt'&&!PT.busy){drawSub();if(PTX.on){try{drawGroups();drawPlan();refreshModal()}catch(e){}}else if(!view.hidden)render()}},()=>{PT.sub[m.id]=0})}catch(e){PT.sub[m.id]=0}
   try{DB.doc('shared/ps'+(m.suffix||'')).onSnapshot(s=>{PS.docs[m.id]=s.exists?s.data():null;PS.ver[m.id]=(PS.ver[m.id]||0)+1;if(M&&M.id===m.id&&PT.mode==='pt'){PS.I=null;drawSub();if(PTX.on){try{drawGroups();drawPlan();refreshModal()}catch(e){}}else if(!view.hidden)render()}},()=>{})}catch(e){}
 }
 
@@ -229,12 +230,12 @@ function showMenu(id,s,x,y){
   menu.hidden=false;menu.style.left=Math.min(x,innerWidth-230)+'px';menu.style.top=Math.min(y,innerHeight-menu.offsetHeight-10)+'px';
   menu._t={id,s};
 }
-menu.onclick=e=>{const b=e.target.closest('[data-m]');if(!b)return;const t=menu._t;menu.hidden=true;if(t.pk){if(b.dataset.m)psPatch({[t.pk]:{m:b.dataset.m}});return}setMark(t.id,t.s,b.dataset.m)};
+menu.onclick=e=>{const b=e.target.closest('[data-m]');if(!b)return;const t=menu._t;menu.hidden=true;if(t.pk){if(b.dataset.m)persist(t.pk,{m:b.dataset.m});return}setMark(t.id,t.s,b.dataset.m)};
 document.addEventListener('mousedown',e=>{if(!menu.hidden&&!menu.contains(e.target))menu.hidden=true});
 function setMark(id,s,m){
   const d=doc();if(!d||!d.items[id])return;
   const nd=JSON.parse(JSON.stringify(d));nd.items[id].hist=nd.items[id].hist||{};nd.items[id].hist[s]=m;if(!m)delete nd.items[id].hist[s];
-  PT.docs[M.id]=nd;render();
+  PT.docs[M.id]=nd;PT.ver[M.id]=(PT.ver[M.id]||0)+1;PS.I=null;render();
   const patch={items:{[id]:{hist:{[s]:m}}}};
   enqueue(()=>dbMerge('shared/pt'+(M.suffix||''),patch,nd));
 }
@@ -306,8 +307,9 @@ function parseLibro(rows,sheetName){
     if(cSap>=0&&S(r[cSap]))it.sap=S(r[cSap]);
     items.push(it)});
   if(!items.length)return null;
+  const skip=sc.filter(j=>/no se hace|no se ha hecho|cancel/i.test(H[j])).map(j=>stops[sc.indexOf(j)]);
   let reqHdr='';if(cReq>=0)reqHdr=H[cReq]||S((rows[hr-1]||[])[cReq]);
-  return {sheet:sheetName,stops,items,reqHdr,codeHdr:H[cCode]||('col. '+(cCode+1))};
+  return {sheet:sheetName,stops,items,reqHdr,skip,codeHdr:H[cCode]||('col. '+(cCode+1))};
 }
 function STOCKRE_NOT(t){return !/^(pagina|posici|cantidad|horas|nivel)/i.test(t)}
 function parseMaster(rows){
@@ -360,12 +362,12 @@ async function readFiles(files){
 }
 function build(){
   const U=PT.up,d=doc(),old=d&&d.items?d.items:{};
-  const res={stops:[],items:{},changes:[],added:0,removed:0,upd:0,next:d&&d.next||null,khs:(d&&d.khs)||'',mat:Object.assign({},(d&&d.mat)||{})};
+  const res={stops:[],items:{},changes:[],added:0,removed:0,upd:0,next:d&&d.next||null,khs:(d&&d.khs)||'',mat:Object.assign({},(d&&d.mat)||{}),skip:(d&&d.skip)||[]};
   if(U.master){const mm=U.master;res.mat={};CODEIDX.forEach((_,k)=>{const sp=mm.byc[k]||mm.byc[k.replace(/^0+/,'')];if(sp&&mm.mat[sp])res.mat[k]=[sp].concat(mm.mat[sp])})}
   const m=U.master;
   const fill=it=>{ if(m){const s=it.sap||sapOf(it.code,m);if(s&&m.mat[s]){it.sap=s;it.st=m.mat[s]}}else if(!it.sap){const s=sapOf(it.code,null);if(s)it.sap=s} return it};
   if(U.libro){
-    const P=U.libro;if(P.reqHdr)res.khs=P.reqHdr;
+    const P=U.libro;if(P.reqHdr)res.khs=P.reqHdr;if(P.skip&&P.skip.length)res.skip=P.skip;
     if(U.mode==='replace'){res.stops=P.stops.slice();Object.keys(old).forEach(k=>{if(!P.items.some(i=>i.id===k))res.removed++})}
     else res.stops=stopsOf(d).slice();
     P.stops.forEach(s=>{if(!res.stops.includes(s))res.stops.push(s)});
@@ -409,11 +411,11 @@ function preview(){
 }
 async function save(){
   const U=PT.up,R=U.res,btn=modal.querySelector('#ptGo');btn.disabled=true;btn.textContent='Guardando…';
-  const out={stops:R.stops,next:R.next,khs:R.khs||'',mat:R.mat||{},items:R.items,meta:{at:new Date().toISOString(),by:(ME&&ME.id)||'',file:(U.names||[]).join(', ')}};
+  const out={stops:R.stops,next:R.next,khs:R.khs||'',skip:R.skip||[],mat:R.mat||{},items:R.items,meta:{at:new Date().toISOString(),by:(ME&&ME.id)||'',file:(U.names||[]).join(', ')}};
   try{
     PT.busy=true;
     await DB.doc('shared/pt'+(M.suffix||'')).set(out);
-    PT.docs[M.id]=out;PT.f.stop=null;close();toast('Plan de parada guardado');
+    PT.docs[M.id]=out;PT.ver[M.id]=(PT.ver[M.id]||0)+1;PS.I=null;PT.f.stop=null;close();toast('Plan de parada guardado');
   }catch(e){btn.disabled=false;btn.textContent='Guardar en la parada';toast('No se pudo guardar: '+((e&&(e.message||e.code))||'error'))}
   finally{PT.busy=false;render()}
 }
@@ -422,14 +424,61 @@ async function save(){
 const PS={docs:{},ver:{},km:{},I:null};
 const nkey=n=>(K(n.code)+'_'+n.pos+'_'+(n.parent!=null&&n.parent>=0?K(N[n.parent].code):'')).replace(/[^A-Za-z0-9_\-.~:@+]/g,'_').slice(0,190);
 const psSel=()=>(PS.docs[M.id]&&PS.docs[M.id].sel)||{};
+const psRej=()=>(PS.docs[M.id]&&PS.docs[M.id].rej)||{};
+function perYears(per){
+  let s=String(per==null?'':per).trim().toLowerCase();if(!s)return null;
+  s=s.replace(/(\d)\.(\d{3})(?!\d)/g,'$1$2').replace(',','.');
+  const m=s.match(/(\d+(?:\.\d+)?)\s*(mes|a[ñn]o)?/);if(!m)return null;
+  const n=parseFloat(m[1]);if(!(n>0))return null;
+  if(m[2]==='mes')return n/12;if(m[2])return n;
+  return n>=100?n/7000:null;
+}
+function autoDue(d){
+  const stops=stopsOf(d),nx=d.next&&stops.includes(d.next)?d.next:null;if(!nx)return [];
+  const ni=stops.indexOf(nx),ny=yrOf(nx),skip=new Set(d.skip||[]),out=[];
+  itemsOf(d).forEach(it=>{
+    const py=perYears(it.per);if(!py)return;
+    const cur=it.hist&&it.hist[nx];if(cur&&mcls(cur)==='des')return;
+    let last=0,lastS='';
+    stops.slice(0,ni).forEach(s=>{if(skip.has(s))return;const m=it.hist&&it.hist[s];if(m&&mcls(m)==='chg'&&!String(m).includes('?')){const y=yrOf(s);if(y>=last){last=y;lastS=s}}});
+    if(!last||ny-last<py-0.01)return;
+    const yy=Math.round(py*10)/10;
+    out.push({it,why:'Último cambio '+lastS+' · periodo '+it.per+' ('+yy+(yy===1?' año':' años')+') → le toca en '+nx+(String(it.per).includes('?')?' · periodo dudoso':''),m:cur&&['chg','alm','pre'].includes(mcls(cur))?String(cur).replace('?',''):'X'});
+  });
+  return out;
+}
+function psEff(){
+  const mid=M.id,sig=(PS.ver[mid]||0)+'|'+(PT.ver[mid]||0)+'|'+PT.auto+'|'+N.length;
+  if(PS.E&&PS.E.m===mid&&PS.E.sig===sig)return PS.E.v;
+  const sel=psSel(),eff=Object.assign({},sel),d=doc();
+  if(PT.auto&&d){const rej=psRej();
+    autoDue(d).forEach(a=>{const occ=CODEIDX.get(K(a.it.code));if(!occ||!occ.length)return;
+      const id=occ.find(o=>String(N[o].pos)===String(a.it.pos))||occ[0],node=N[id],k=nkey(node);
+      if(eff[k]||rej[k])return;
+      eff[k]=Object.assign(nodeEntry(node,{m:a.m,by:'',at:''}),{auto:1,why:a.why})})}
+  PS.E={m:mid,sig,v:eff};return eff;
+}
+function persist(k,extra){
+  const e=psEff()[k];
+  if(e&&e.auto){const f=Object.assign({},e,{by:(ME&&ME.id)||'',at:new Date().toISOString(),src:'periodo'},extra);delete f.auto;delete f.why;return psPatch({[k]:f})}
+  return psPatch({[k]:extra});
+}
+function psRemove(k){
+  if(!CAN||!M)return;const mid=M.id,sfx=M.suffix||'';
+  const d=PS.docs[mid]=PS.docs[mid]||{sel:{}};d.sel=d.sel||{};d.rej=d.rej||{};
+  delete d.sel[k];d.rej[k]=1;PS.ver[mid]=(PS.ver[mid]||0)+1;PS.I=null;
+  const full=JSON.parse(JSON.stringify(d)),patch={sel:{[k]:null},rej:{[k]:1}};
+  try{drawSub();if(PTX.on){drawGroups();drawPlan();refreshModal()}else if(!view.hidden)render()}catch(e){}
+  return enqueue(()=>dbMerge('shared/ps'+sfx,patch,full));
+}
 function PSI(){
   if(!M)return {cnt:{},cov:{},self:{},orph:[]};
-  const ver=PS.ver[M.id]||0;let I=PS.I;
+  const ver=(PS.ver[M.id]||0)+'|'+(PT.ver[M.id]||0)+'|'+PT.auto;let I=PS.I;
   if(I&&I.m===M.id&&I.v===ver&&I.n===N.length)return I;
   let km=PS.km[M.id];
   if(!km||km.n!==N.length){km={n:N.length,m:new Map()};N.forEach(n=>{if(n.l>=2)km.m.set(nkey(n),n.id)});PS.km[M.id]=km}
   I={m:M.id,v:ver,n:N.length,cnt:{},cov:{},self:{},orph:[]};
-  Object.keys(psSel()).forEach(k=>{
+  Object.keys(psEff()).forEach(k=>{
     const id=km.m.get(k);if(id==null){I.orph.push(k);return}
     I.self[id]=k;let p=id;while(p!=null&&p>=0){I.cnt[p]=(I.cnt[p]||0)+1;p=N[p].parent}
     const mark=x=>{if(I.cov[x]==null)I.cov[x]=id;N[x].kids.forEach(mark)};mark(id)});
@@ -438,11 +487,13 @@ function PSI(){
 const nodeTxt=id=>N[id].pos+' '+N[id].desc;
 PTX.cnt=n=>PSI().cnt[n.id]||0;
 PTX.cls=n=>{const I=PSI();return (I.self[n.id]!=null||I.cov[n.id]!=null)?' psel':''};
-PTX.note='<b style="color:var(--blue)">🛠n</b> = n elementos elegidos para la próxima parada (abre un subconjunto y pulsa «Añadir a la parada»). ';
+PTX.note='<b style="color:var(--blue)">🛠n</b> = n elementos elegidos para la próxima parada (abre un subconjunto y pulsa «Añadir a la parada»). Las ✨ sugeridas por periodo de cambio ya cuentan; confírmalas o descártalas. ';
 PTX.info=n=>{
   const I=PSI(),k=I.self[n.id];
   const add=CAN?`<button class="mini" data-psel="${n.id}">＋ Añadir a la parada</button>`:'';
-  if(k!=null){const e=psSel()[k]||{};return `<span class="sub"><b>🛠 En la parada</b> · marca ${esc(e.m||'X')}</span>`+(CAN?`<button class="mini danger" data-punsel="${esc(k)}">Quitar de la parada</button>`:'')}
+  if(k!=null){const e=psEff()[k]||{};
+    if(e.auto)return `<span class="sub"><b>✨ Sugerida por periodo</b> · ${esc(e.why||'')}</span>`+(CAN?`<button class="mini" data-pacc="${esc(k)}">Confirmar</button><button class="mini danger" data-punsel="${esc(k)}">Descartar</button>`:'');
+    return `<span class="sub"><b>🛠 En la parada</b> · marca ${esc(e.m||'X')}</span>`+(CAN?`<button class="mini danger" data-punsel="${esc(k)}">Quitar de la parada</button>`:'')}
   if(I.cov[n.id]!=null)return `<span class="sub"><b>🛠 Incluido</b> en ${esc(nodeTxt(I.cov[n.id]))}</span>`;
   if(I.cnt[n.id])return `<span class="sub"><b>🛠 ${I.cnt[n.id]}</b> elegidos dentro</span>`+add;
   return add;
@@ -455,11 +506,11 @@ PTX.head=n=>{
   return `<button class="mini" data-psel="${n.id}" style="margin-left:10px">＋ Añadir este subconjunto completo a la parada</button>`;
 };
 PTX.sub=cur=>{
-  const I=PSI(),sel=psSel();
+  const I=PSI(),sel=psEff();
   const ids=Object.entries(I.self).filter(([id])=>+id!==cur&&inSub(+id,cur));
   if(!ids.length)return '';
   const rows=ids.map(([id,k])=>{const e=sel[k]||{};const n=N[+id];
-    return `<tr><td><a class="lnk" data-gohl="${n.parent},${n.id}">${esc(pathTxt(n.parent))}</a></td><td class="code">${esc(n.code)}</td><td>${esc(n.desc)}${n.kids.length?' <i>(conjunto)</i>':''}</td><td>${esc(e.m||'X')}</td><td>${CAN?`<button class="mini danger" data-punsel="${esc(k)}">Quitar</button>`:''}</td></tr>`}).join('');
+    return `<tr><td><a class="lnk" data-gohl="${n.parent},${n.id}">${esc(pathTxt(n.parent))}</a></td><td class="code">${esc(n.code)}</td><td>${esc(n.desc)}${n.kids.length?' <i>(conjunto)</i>':''}</td><td>${esc(e.m||'X')}${e.auto?' ✨':''}</td><td>${CAN?`${e.auto?`<button class="mini" data-pacc="${esc(k)}">Confirmar</button>`:''}<button class="mini danger" data-punsel="${esc(k)}">${e.auto?'Descartar':'Quitar'}</button>`:''}</td></tr>`}).join('');
   return `<details class="cdet" open><summary>🛠 Elegido para la parada en este subnivel (${ids.length})</summary><div style="max-height:220px;overflow:auto"><table><thead><tr><th>Dónde está</th><th>Código</th><th>Descripción</th><th>Marca</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
 };
 function psPatch(ch){
@@ -479,7 +530,8 @@ function nodeEntry(n,extra){return Object.assign({code:n.code,desc:n.desc,pos:n.
 function psAdd(id){const n=N[id];if(!n||n.l<2)return;psPatch({[nkey(n)]:nodeEntry(n)});toast('Añadido a la parada: '+n.pos+' '+n.desc)}
 modal.addEventListener('click',e=>{
   const a=e.target.closest('[data-psel]');if(a){e.stopPropagation();e.preventDefault();psAdd(+a.dataset.psel);return}
-  const u=e.target.closest('[data-punsel]');if(u){e.stopPropagation();e.preventDefault();psPatch({[u.dataset.punsel]:null});return}
+  const u=e.target.closest('[data-punsel]');if(u){e.stopPropagation();e.preventDefault();psRemove(u.dataset.punsel);return}
+  const ac=e.target.closest('[data-pacc]');if(ac){e.stopPropagation();e.preventDefault();persist(ac.dataset.pacc,{});return}
 },true);
 
 // ---------- vista "Plan de la parada" ----------
@@ -506,14 +558,14 @@ function histMini(it,stops,nx){
   return stops.filter(s=>it.hist[s]).slice(-5).map(s=>{const i=stops.indexOf(s);return `<span title="${esc(s)}" style="white-space:nowrap"><small style="color:var(--mut)">${esc(s)}</small><span class="mk ${mcls(it.hist[s])} ${i<ni?'past':''}">${esc(it.hist[s])}</span></span>`}).join(' ');
 }
 function renderPlan(){
-  const I=PSI(),sel=psSel(),d=doc(),stops=stopsOf(d),nx=d&&d.next&&stops.includes(d.next)?d.next:null;
+  const I=PSI(),sel=psEff(),d=doc(),stops=stopsOf(d),nx=d&&d.next&&stops.includes(d.next)?d.next:null;
   const L=lookups();
   const ents=Object.entries(sel).map(([k,e])=>{const id=(PS.km[M.id]||{m:new Map()}).m.get(k);return {k,e,n:id!=null?N[id]:null}});
   ents.sort((a,b)=>((a.e.path||'')+'|'+String(a.e.pos).padStart(6,'0')).localeCompare((b.e.path||'')+'|'+String(b.e.pos).padStart(6,'0'),'es',{numeric:true}));
   // estadísticas sobre las piezas únicas cubiertas
   const cov=[];N.forEach(n=>{if(n.l>=2&&!n.kids.length&&I.cov[n.id]!=null)cov.push(n)});
   const sc={ok:0,part:0,none:0,nosap:0};cov.forEach(n=>{sc[codeInfo(n.code,n.qty>0?n.qty:1,L).S.s]++});
-  const nA=ents.filter(x=>x.e.k==='a').length;
+  const nA=ents.filter(x=>x.e.k==='a').length,nAuto=ents.filter(x=>x.e.auto).length,nRej=Object.keys(psRej()).length;
   const card=(v,l,c)=>`<div class="ptcard k-${c||''}" style="cursor:default"><b>${v}</b><span>${l}</span></div>`;
   const body=ents.map(({k,e,n})=>{
     const isA=e.k==='a'&&n;let stk='',hist='',khs='';
@@ -530,16 +582,16 @@ function renderPlan(){
         return `<tr><td class="code">${esc(c.code)}</td><td>${esc(c.desc)}</td><td class="c">${fmtQ(c.qty)}</td><td class="sbox s-${S.s}"><span class="sdot s-${S.s}"></span>${S.s==='nosap'?'—':fmtQ(S.st)+' / '+fmtQ(S.need)}</td><td>${histMini(ci.it,stops,nx)}</td></tr>`}).join('')}</table></td></tr>`}
     const mk=e.m||'X';
     return `<tr class="${n?'':'orph'}"><td>${stk}</td><td class="code">${esc(e.code)}${n?` <a href="#" data-plano="${n.id}" title="Ver en el despiece">⌖</a>`:''}</td>
-      <td>${isA?`<a href="#" data-ptog="${esc(k)}">${open?'▾':'▸'}</a> `:''}${esc(e.desc)}<div class="grp">${esc(e.path||'')}${n?'':' · (ya no figura en el despiece)'}</div></td>
+      <td>${isA?`<a href="#" data-ptog="${esc(k)}">${open?'▾':'▸'}</a> `:''}${e.auto?'<span class="mk alm" title="Sugerida por periodo de cambio" style="font-family:inherit">✨ sugerida</span> ':''}${esc(e.desc)}<div class="grp">${esc(e.path||'')}${n?'':' · (ya no figura en el despiece)'}</div>${e.auto?`<div class="grp" style="color:var(--blue)">${esc(e.why||'')}</div>`:''}</td>
       <td>${isA?`Conjunto · ${n?leafNodes(n).length:'?'} pz`:'Pieza'}</td><td class="c">${fmtQ(e.qty)}</td><td>${hist}</td><td class="c">${khs}</td>
       <td class="c ${CAN?'ed':''}" data-pm="${esc(k)}"><span class="mk ${mcls(mk)}" title="${esc(mtitle(mk))}">${esc(mk)}</span></td>
       <td>${CAN?`<input class="pn" data-pnote="${esc(k)}" value="${esc(e.note||'')}" placeholder="nota…">`:esc(e.note||'')}</td>
-      <td>${CAN?`<button class="ptb ghost" data-prm="${esc(k)}" title="Quitar de la parada">✕</button>`:''}</td></tr>${sub}`}).join('');
-  view.innerHTML=`<div class="ptc"><div class="ptbar"><b style="font-size:16px">Plan de la parada · ${esc(M.short||M.name)}</b>${nx?`<span class="ptmeta">Próxima parada: <b>${esc(nx)}</b></span>`:''}<span class="sp"></span>
+      <td style="white-space:nowrap">${CAN?`${e.auto?`<button class="ptb ghost" data-pacc="${esc(k)}" title="Confirmar en el plan">✓</button>`:''}<button class="ptb ghost" data-prm="${esc(k)}" title="${e.auto?'Descartar sugerencia':'Quitar de la parada'}">✕</button>`:''}</td></tr>${sub}`}).join('');
+  view.innerHTML=`<div class="ptc"><div class="ptbar"><b style="font-size:16px">Plan de la parada · ${esc(M.short||M.name)}</b>${nx?`<span class="ptmeta">Próxima parada: <b>${esc(nx)}</b></span>`:''}<label class="ptmeta" title="Piezas cuyo periodo de cambio vence en la próxima parada, según el último cambio registrado"><input type="checkbox" id="ptAuto" ${PT.auto?'checked':''}> ✨ Sugerir por periodo de cambio</label><span class="sp"></span>
       ${CAN&&d?`<button class="ptb ghost" id="ptImp" title="Añade al plan las piezas marcadas en la próxima parada en el libro de operaciones">Traer del libro (${esc(nx||'—')})</button>`:''}
-      <button class="ptb ghost" id="ptExpP">Exportar plan (Excel)</button>${CAN&&ents.length?'<button class="ptb ghost" id="ptClrAll">Vaciar plan</button>':''}
+      ${CAN&&nAuto?`<button class="ptb acc" id="ptAccAll">Confirmar las ${nAuto} sugeridas</button>`:''}${CAN&&nRej?`<button class="ptb ghost" id="ptRejClr">Recuperar ${nRej} descartadas</button>`:''}<button class="ptb ghost" id="ptExpP">Exportar plan (Excel)</button>${CAN&&ents.length?'<button class="ptb ghost" id="ptClrAll">Vaciar plan</button>':''}
       <button class="ptb acc" id="ptGoSel">＋ Seleccionar en el plano</button></div>
-    <div class="ptcards">${card(ents.length,'elementos elegidos','chg')}${card(nA,'subconjuntos completos','alm')}${card(cov.length,'piezas incluidas')}${card(sc.ok,'con stock suficiente','ok')}${card(sc.part,'stock parcial','part')}${card(sc.none,'sin stock','none')}${card(sc.nosap,'sin SAP / sin dato','nosap')}</div>
+    <div class="ptcards">${card(ents.length,'elementos en el plan','chg')}${card(nAuto,'sugeridos por periodo','alm')}${card(nA,'subconjuntos completos','alm')}${card(cov.length,'piezas incluidas')}${card(sc.ok,'con stock suficiente','ok')}${card(sc.part,'stock parcial','part')}${card(sc.none,'sin stock','none')}${card(sc.nosap,'sin SAP / sin dato','nosap')}</div>
     <div class="ptleg"><span>Stock: <span class="sdot s-ok"></span>suficiente <span class="sdot s-part"></span>parcial <span class="sdot s-none"></span>sin stock <span class="sdot s-nosap"></span>sin dato · El stock y el historial salen del libro de operaciones y de la lista de críticos (carga el Excel de parada para completarlos).</span></div></div>
     <div class="ptc" style="padding:0"><div class="ptwrap"><table class="ptt"><thead><tr><th>Stock / nec.</th><th>Código</th><th>Descripción</th><th>Tipo</th><th class="c">Cant.</th><th>Historial</th><th class="c" title="Propuesta KHS">KHS</th><th class="c">Marca</th><th>Nota</th><th></th></tr></thead>
     <tbody>${body||`<tr><td colspan="10" class="ptempty">Todavía no has elegido nada para la próxima parada.<br>Pulsa «Seleccionar en el plano», abre un subconjunto y añade piezas o el conjunto completo${CAN&&d?', o usa «Traer del libro» para partir de las marcas del Excel':''}.</td></tr>`}</tbody></table></div></div>`;
@@ -560,7 +612,7 @@ function importLibro(){
 }
 function exportPlan(){
   if(!window.XLSX){toast('No se pudo cargar el lector de Excel');return}
-  const sel=psSel(),L=lookups(),d=doc();
+  const sel=psEff(),L=lookups(),d=doc();
   const ents=Object.entries(sel).map(([k,e])=>{const id=(PS.km[M.id]||{m:new Map()}).m.get(k);return {k,e,n:id!=null?N[id]:null}});
   const A=[['Subconjunto','Código','Descripción','Tipo','Cant.','Marca','Nota','Elegido por','Fecha']].concat(ents.map(({e})=>[e.path||'',e.code,e.desc,e.k==='a'?'Conjunto':'Pieza',e.qty==null?'':e.qty,e.m||'X',e.note||'',e.by||'',e.at?fmtD(e.at):'']));
   const seen=new Set(),B=[['Conjunto elegido','Código','Descripción','Cant.','SAP','Stock','Necesario','Estado stock','Ubicación','Marca','Nota']];
@@ -571,10 +623,13 @@ function exportPlan(){
 }
 view.addEventListener('click',e=>{
   const t=e.target.closest('[data-ptog]');if(t){e.preventDefault();PT.open[t.dataset.ptog]=!PT.open[t.dataset.ptog];renderPlan();return}
-  const r=e.target.closest('[data-prm]');if(r){psPatch({[r.dataset.prm]:null});return}
+  const r=e.target.closest('[data-prm]');if(r){psRemove(r.dataset.prm);return}
+  const pa=e.target.closest('[data-pacc]');if(pa){persist(pa.dataset.pacc,{});return}
+  if(e.target.closest('#ptAccAll')){const ch={};Object.entries(psEff()).forEach(([k,en])=>{if(en.auto){const f=Object.assign({},en,{by:(ME&&ME.id)||'',at:new Date().toISOString(),src:'periodo'});delete f.auto;delete f.why;ch[k]=f}});psPatch(ch);toast(Object.keys(ch).length+' sugerencias confirmadas');return}
+  if(e.target.closest('#ptRejClr')&&CAN){const mid=M.id,d=PS.docs[mid];const rj=Object.fromEntries(Object.keys(psRej()).map(k=>[k,null]));d.rej={};PS.ver[mid]=(PS.ver[mid]||0)+1;PS.I=null;const sfx=M.suffix||'';enqueue(()=>dbMerge('shared/ps'+sfx,{rej:rj},JSON.parse(JSON.stringify(d))));drawSub();render();return}
   const pm=e.target.closest('td[data-pm]');if(pm&&CAN){const rc=pm.getBoundingClientRect();showMenu(null,'',rc.left,rc.bottom+4);menu._t={pk:pm.dataset.pm}}
 });
-view.addEventListener('change',e=>{const i=e.target.closest('[data-pnote]');if(i)psPatch({[i.dataset.pnote]:{note:i.value}})});
+view.addEventListener('change',e=>{const i=e.target.closest('[data-pnote]');if(i)persist(i.dataset.pnote,{note:i.value});const c=e.target.closest('#ptAuto');if(c){PT.auto=c.checked;try{localStorage.setItem('ptAuto',PT.auto?'1':'0')}catch(_){}PS.I=null;drawSub();render()}});
 
 sync();
 })();
