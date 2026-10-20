@@ -82,7 +82,7 @@ async function start2(session){
   out.onclick=async()=>{await sb.auth.signOut();location.reload()};
   document.querySelector('header .btns').appendChild(out);
   const s=document.createElement('script');s.src='app.js?v='+(CFG.v||'1');
-  s.onload=()=>{const e=document.createElement('script');e.src='elec.js?v='+(CFG.v||'1');document.body.appendChild(e)};
+  s.onload=()=>{const e=document.createElement('script');e.src='elec.js?v='+(CFG.v||'1');e.onload=()=>{const p=document.createElement('script');p.src='pt.js?v='+(CFG.v||'1');document.body.appendChild(p)};document.body.appendChild(e)};
   document.body.appendChild(s);
   setInterval(poll,20000);
   try{sb.channel('kv-watch').on('postgres_changes',{event:'*',schema:'public',table:'kv'},()=>poll()).subscribe()}catch(e){}
