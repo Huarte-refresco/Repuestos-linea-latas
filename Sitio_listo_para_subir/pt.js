@@ -11,7 +11,7 @@ const mcls=m=>{m=String(m||'').toUpperCase();if(!m)return '';const c=m[0];if(c==
 const mtitle=m=>{const f=MARKS.find(x=>x[0]===m);return f?f[1]:m};
 
 // ---------- estado ----------
-const PT={docs:{},sub:{},mode:'crit',f:{stop:null,cls:'',stk:'',q:'',all:false,pend:false},up:null};
+const PT={docs:{},sub:{},mode:'crit',f:{stop:null,cls:'',stk:'',q:'',all:false,pend:false,gap:''},up:null};
 try{const v=localStorage.getItem('ptMode');if(v==='pt')PT.mode='pt'}catch(e){}
 const doc=()=>M&&PT.docs[M.id]||null;
 const stopsOf=d=>(d&&d.stops)||[];
@@ -122,14 +122,18 @@ function render(){
   const nx=d.next&&stops.includes(d.next)?d.next:null,ni=nx?stops.indexOf(nx):stops.length;
   const all=itemsOf(d).map(it=>Object.assign(it,{S:stockOf(it)}));
   const sel=f.stop;
-  const base=all.filter(it=>f.all||(it.hist&&it.hist[sel]));
+  const KH=(d.khs||'KHS').replace(/^solicitado\s*/i,'');
+  const base=all.filter(it=>f.all||f.gap==='khs'||(it.hist&&it.hist[sel]));
   // contadores de la parada seleccionada
   const inStop=all.filter(it=>it.hist&&it.hist[sel]);
   const cnt={chg:0,alm:0,pre:0,rev:0,des:0};inStop.forEach(it=>{const c=mcls(it.hist[sel]);if(c)cnt[c]++});
   const mat=inStop.filter(it=>['chg','alm','pre'].includes(mcls(it.hist[sel])));
   const sc={ok:0,part:0,none:0,nosap:0};mat.forEach(it=>sc[it.S.s]++);
+  const gapKn=mat.filter(it=>it.kn),gapKhs=all.filter(it=>it.req>0&&!(it.hist&&it.hist[sel]));
   const q=norm(f.q);
   const rows=base.filter(it=>{
+    if(f.gap==='kn'&&!(it.kn&&['chg','alm','pre'].includes(mcls(it.hist&&it.hist[sel]))))return false;
+    if(f.gap==='khs'&&!(it.req>0&&!(it.hist&&it.hist[sel])))return false;
     if(f.cls&&mcls(it.hist&&it.hist[sel])!==f.cls)return false;
     if(f.stk&&it.S.s!==f.stk)return false;
     if(f.pend&&!(['part','none'].includes(it.S.s)&&['chg','alm','pre'].includes(mcls(it.hist&&it.hist[sel]))))return false;
@@ -147,7 +151,7 @@ function render(){
     const obs=(it.obs||[]).join(' · ');
     return `<tr><td class="sbox s-${S.s}" title="${SLAB[S.s]}${S.ub?' · ubic. '+esc(S.ub):''}${S.live?'':' (stock de la carga de parada)'}"><span class="sdot s-${S.s}"></span>${sk}</td>
       <td class="code">${esc(it.code)}${occ?` <a href="#" data-plano="${occ[0]}" title="Ver en el despiece">⌖</a>`:''}</td><td class="code">${esc(it.sap||'')}</td>
-      <td>${esc(it.desc)}<div class="grp">${esc(it.grp||'')}</div></td><td class="c">${esc(it.pos||'')}</td><td class="c">${fmtQ(it.qty)}</td><td>${esc(it.per||'')}</td>${cells}<td class="c">${it.req!=null?fmtQ(it.req):''}</td><td class="obs" title="${esc(obs)}">${esc(obs.length>140?obs.slice(0,140)+'…':obs)}</td></tr>`}).join('');
+      <td>${esc(it.desc)}<div class="grp">${esc(it.grp||'')}</div></td><td class="c">${esc(it.pos||'')}</td><td class="c">${fmtQ(it.qty)}</td><td>${esc(it.per||'')}</td>${cells}<td class="c nx">${it.req>0?`<b title="Unidades que propone KHS">${fmtQ(it.req)}</b>`:it.kn?'<span class="mk des" style="text-decoration:none" title="KHS no lo tiene en su lista">no está</span>':''}</td><td class="obs" title="${esc(obs)}">${esc(obs.length>140?obs.slice(0,140)+'…':obs)}</td></tr>`}).join('');
   const opt=stops.map((s,i)=>`<option value="${esc(s)}" ${s===sel?'selected':''}>${esc(s)}${s===nx?' ★ próxima':i<ni?' · realizada':' · futura'}</option>`).join('');
   view.innerHTML=`<div class="ptc">
     <div class="ptbar"><b style="font-size:16px">Parada técnica · ${esc(M.short||M.name)}</b>
@@ -159,13 +163,14 @@ function render(){
     <div class="ptcards">
       ${card('chg',cnt.chg,'a cambiar (X)')}${card('alm',cnt.alm,'para almacén (A)','alm')}${card('pre',cnt.pre,'pedir precio (P)','pre')}${card('rev',cnt.rev,'revisar / comprobar','rev')}
       ${card('ok',sc.ok,'con stock suficiente')}${card('part',sc.part,'stock parcial')}${card('none',sc.none,'sin stock')}${card('nosap',sc.nosap,'sin SAP / sin dato','nosap')}
+      <button class="ptcard k-part ${f.gap==='kn'?'on':''}" data-card="gkn"><b>${gapKn.length}</b><span>Refresco sí · KHS «no está»</span></button><button class="ptcard k-part ${f.gap==='khs'?'on':''}" data-card="gkhs"><b>${gapKhs.length}</b><span>KHS propone · Refresco sin marca</span></button>
       <button class="ptcard k-none ${f.pend?'on':''}" data-card="pend"><b>${sc.part+sc.none}</b><span>a pedir (parcial + sin stock)</span></button>
     </div>
     <div class="ptbar" style="margin-top:12px"><input type="search" id="ptQ" placeholder="Buscar código, descripción, nota…" value="${esc(f.q)}"><label><input type="checkbox" id="ptAll" ${f.all?'checked':''}> Ver también piezas sin marca en esta parada</label>
-      ${(f.cls||f.stk||f.pend)?'<button class="ptb ghost" id="ptClr">Quitar filtros</button>':''}<span class="sp"></span><span class="ptmeta">${rows.length} piezas · ${meta.at?'Plan cargado '+esc(fmtD(meta.at))+(meta.file?' ('+esc(meta.file)+')':''):''}</span></div>
+      ${(f.cls||f.stk||f.pend||f.gap)?'<button class="ptb ghost" id="ptClr">Quitar filtros</button>':''}<span class="sp"></span><span class="ptmeta">${rows.length} piezas · ${meta.at?'Plan cargado '+esc(fmtD(meta.at))+(meta.file?' ('+esc(meta.file)+')':''):''}</span></div>
     <div class="ptleg">${['X','A','P','R','D'].map(m=>`<span><span class="mk ${mcls(m)}">${m}</span> ${esc(mtitle(m))}</span>`).join('')}<span>Stock: <span class="sdot s-ok"></span>suficiente <span class="sdot s-part"></span>parcial <span class="sdot s-none"></span>sin stock <span class="sdot s-nosap"></span>sin dato (stock/necesario)</span></div>
   </div>
-  <div class="ptc" style="padding:0"><div class="ptwrap"><table class="ptt"><thead><tr><th>Stock / nec.</th><th>Código</th><th>SAP</th><th>Descripción</th><th class="c">Pos.</th><th class="c">Cant.</th><th>Periodo</th>${th}<th class="c" title="Unidades solicitadas / PACO">Solic.</th><th>Observaciones</th></tr></thead><tbody>${body||`<tr><td colspan="${9+stops.length}" class="ptempty">Ninguna pieza con estos filtros.</td></tr>`}</tbody></table></div></div>`;
+  <div class="ptc" style="padding:0"><div class="ptwrap"><table class="ptt"><thead><tr><th>Stock / nec.</th><th>Código</th><th>SAP</th><th>Descripción</th><th class="c">Pos.</th><th class="c">Cant.</th><th>Periodo</th>${th}<th class="c nx" title="Propuesta de KHS (proveedor): unidades o «no está»">KHS<small>${esc(KH)}</small></th><th>Observaciones</th></tr></thead><tbody>${body||`<tr><td colspan="${9+stops.length}" class="ptempty">Ninguna pieza con estos filtros.</td></tr>`}</tbody></table></div></div>`;
   bindTop();
 }
 function bindTop(){
@@ -175,15 +180,16 @@ function bindTop(){
   const nxb=$v('#ptNext');if(nxb)nxb.onclick=()=>{const d=doc();enqueue(()=>dbMerge('shared/pt'+(M.suffix||''),{next:PT.f.stop},Object.assign({},d,{next:PT.f.stop}))).then(()=>toast('Próxima parada: '+PT.f.stop))};
   const q=$v('#ptQ');if(q)q.oninput=e=>{PT.f.q=e.target.value;const p=e.target.selectionStart;render();const n=view.querySelector('#ptQ');n.focus();n.setSelectionRange(p,p)};
   const al=$v('#ptAll');if(al)al.onchange=e=>{PT.f.all=e.target.checked;render()};
-  const cl=$v('#ptClr');if(cl)cl.onclick=()=>{Object.assign(PT.f,{cls:'',stk:'',pend:false});render()};
+  const cl=$v('#ptClr');if(cl)cl.onclick=()=>{Object.assign(PT.f,{cls:'',stk:'',pend:false,gap:''});render()};
   const ev=$v('#ptExpV');if(ev)ev.onclick=()=>exportX(true);const ea=$v('#ptExpA');if(ea)ea.onclick=()=>exportX(false);
 }
 view.addEventListener('click',e=>{
   const c=e.target.closest('[data-card]');
   if(c){const k=c.dataset.card,f=PT.f;
-    if(k==='pend'){f.pend=!f.pend;f.cls='';f.stk=''}
-    else if(['chg','alm','pre','rev','des'].includes(k)){f.cls=f.cls===k?'':k;f.pend=false}
-    else{f.stk=f.stk===k?'':k;f.pend=false}
+    if(k==='gkn'||k==='gkhs'){const g=k==='gkn'?'kn':'khs';f.gap=f.gap===g?'':g;f.cls='';f.stk='';f.pend=false}
+    else if(k==='pend'){f.pend=!f.pend;f.cls='';f.stk='';f.gap=''}
+    else if(['chg','alm','pre','rev','des'].includes(k)){f.cls=f.cls===k?'':k;f.pend=false;f.gap=''}
+    else{f.stk=f.stk===k?'':k;f.pend=false;f.gap=''}
     render();return}
   const a=e.target.closest('[data-plano]');
   if(a){e.preventDefault();try{openNode(+a.dataset.plano)}catch(_){}return}
@@ -213,10 +219,10 @@ function exportX(onlyView){
   let aoa;
   if(onlyView){
     const rows=all.filter(it=>it.hist&&it.hist[sel]&&(!PT.f.cls||mcls(it.hist[sel])===PT.f.cls)&&(!PT.f.stk||it.S.s===PT.f.stk)&&(!PT.f.pend||(['part','none'].includes(it.S.s)&&['chg','alm','pre'].includes(mcls(it.hist[sel])))));
-    aoa=[['Código','SAP','Descripción','Grupo','Pos.','Cant.','Marca '+sel,'Stock','Necesario','Estado stock','Ubicación','Solicitado','Observaciones']].concat(rows.map(it=>[it.code,it.sap||'',it.desc,it.grp||'',it.pos||'',it.qty==null?'':it.qty,it.hist[sel],it.S.st==null?'':it.S.st,it.S.need,SLAB[it.S.s],it.S.ub||'',it.req==null?'':it.req,(it.obs||[]).join(' · ')]));
+    aoa=[['Código','SAP','Descripción','Grupo','Pos.','Cant.','Marca '+sel,'Stock','Necesario','Estado stock','Ubicación','KHS','Observaciones']].concat(rows.map(it=>[it.code,it.sap||'',it.desc,it.grp||'',it.pos||'',it.qty==null?'':it.qty,it.hist[sel],it.S.st==null?'':it.S.st,it.S.need,SLAB[it.S.s],it.S.ub||'',it.req>0?it.req:(it.kn?'no está':''),(it.obs||[]).join(' · ')]));
   }else{
     aoa=[['Código','SAP','Descripción','Grupo','Pos.','Cant.','Periodo']].concat([]);
-    aoa=[['Código','SAP','Descripción','Grupo','Pos.','Cant.','Periodo'].concat(stops,['Solicitado','Observaciones'])].concat(all.map(it=>[it.code,it.sap||'',it.desc,it.grp||'',it.pos||'',it.qty==null?'':it.qty,it.per||''].concat(stops.map(s=>(it.hist&&it.hist[s])||''),[it.req==null?'':it.req,(it.obs||[]).join(' · ')])));
+    aoa=[['Código','SAP','Descripción','Grupo','Pos.','Cant.','Periodo'].concat(stops,['KHS','Observaciones'])].concat(all.map(it=>[it.code,it.sap||'',it.desc,it.grp||'',it.pos||'',it.qty==null?'':it.qty,it.per||''].concat(stops.map(s=>(it.hist&&it.hist[s])||''),[it.req>0?it.req:(it.kn?'No está':''),(it.obs||[]).join(' · ')])));
   }
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(aoa),onlyView?('Parada '+sel).slice(0,31):'Plan de parada');
   XLSX.writeFile(wb,(onlyView?'parada_'+sel+'_':'plan_parada_')+(M.short||M.id).replace(/\W+/g,'_')+'.xlsx');
@@ -263,16 +269,17 @@ function parseLibro(rows,sheetName){
   body.forEach(r=>{
     const code=S(r[cCode]);if(!code||!codeLike(code)&&!/^[A-Za-z0-9]{4,}/.test(code))return;
     const hist={};sc.forEach((j,k)=>{const m=normMark(r[j]);if(m)hist[stops[k]]=m});
-    if(!Object.keys(hist).length)return;
+    const rq=cReq>=0?nnum(r[cReq]):null,kn=cReq>=0&&/no est/i.test(S(r[cReq]));if(!Object.keys(hist).length&&!(rq>0))return;
     const kk=K(code),n=seen[kk]||0;seen[kk]=n+1;
     const it={id:kk+(n?'#'+n:''),code,desc:S(r[cDesc]),grp:cGrp>=0?S(r[cGrp]):'',pos:cPos>=0?S(r[cPos]):'',qty:cQty>=0?nnum(r[cQty]):null,per:cPer>=0?S(r[cPer]):'',area:cArea>=0?S(r[cArea]):'',hist};
     const ob=obsC.map(j=>S(r[j])).filter(t=>t&&t[0]!=='#'&&!/^[\d.,]+$/.test(t)&&!/^no est[aá]$/i.test(t));
     if(ob.length)it.obs=ob;
-    if(cReq>=0){const q=nnum(r[cReq]);if(q!=null)it.req=q}
+    if(cReq>=0){if(rq!=null)it.req=rq;if(kn)it.kn=1}
     if(cSap>=0&&S(r[cSap]))it.sap=S(r[cSap]);
     items.push(it)});
   if(!items.length)return null;
-  return {sheet:sheetName,stops,items,codeHdr:H[cCode]||('col. '+(cCode+1))};
+  let reqHdr='';if(cReq>=0)reqHdr=H[cReq]||S((rows[hr-1]||[])[cReq]);
+  return {sheet:sheetName,stops,items,reqHdr,codeHdr:H[cCode]||('col. '+(cCode+1))};
 }
 function STOCKRE_NOT(t){return !/^(pagina|posici|cantidad|horas|nivel)/i.test(t)}
 function parseMaster(rows){
@@ -325,11 +332,11 @@ async function readFiles(files){
 }
 function build(){
   const U=PT.up,d=doc(),old=d&&d.items?d.items:{};
-  const res={stops:[],items:{},changes:[],added:0,removed:0,upd:0,next:d&&d.next||null};
+  const res={stops:[],items:{},changes:[],added:0,removed:0,upd:0,next:d&&d.next||null,khs:(d&&d.khs)||''};
   const m=U.master;
   const fill=it=>{ if(m){const s=it.sap||sapOf(it.code,m);if(s&&m.mat[s]){it.sap=s;it.st=m.mat[s]}}else if(!it.sap){const s=sapOf(it.code,null);if(s)it.sap=s} return it};
   if(U.libro){
-    const P=U.libro;
+    const P=U.libro;if(P.reqHdr)res.khs=P.reqHdr;
     if(U.mode==='replace'){res.stops=P.stops.slice();Object.keys(old).forEach(k=>{if(!P.items.some(i=>i.id===k))res.removed++})}
     else res.stops=stopsOf(d).slice();
     P.stops.forEach(s=>{if(!res.stops.includes(s))res.stops.push(s)});
@@ -341,7 +348,7 @@ function build(){
       let ch=false;
       Object.entries(p.hist).forEach(([s,mk])=>{const prev=(e.hist&&e.hist[s])||'';if(prev!==mk){res.changes.push([p.code,s,prev,mk]);e.hist=e.hist||{};e.hist[s]=mk;ch=true}});
       ['desc','grp','pos','per','area'].forEach(k=>{if(p[k]&&p[k]!==e[k]){e[k]=p[k]}});
-      if(p.qty!=null)e.qty=p.qty;if(p.req!=null&&p.req!==e.req){e.req=p.req;ch=true}
+      if(p.qty!=null)e.qty=p.qty;if(p.req!=null&&p.req!==e.req){e.req=p.req;ch=true}if(p.kn&&!e.kn){e.kn=1;ch=true}else if(!p.kn&&p.req!=null&&e.kn){delete e.kn;ch=true}
       if(p.obs&&JSON.stringify(p.obs)!==JSON.stringify(e.obs)){e.obs=p.obs;ch=true}
       if(p.sap)e.sap=p.sap;fill(e);if(ch)res.upd++;
     });
@@ -373,7 +380,7 @@ function preview(){
 }
 async function save(){
   const U=PT.up,R=U.res,btn=modal.querySelector('#ptGo');btn.disabled=true;btn.textContent='Guardando…';
-  const out={stops:R.stops,next:R.next,items:R.items,meta:{at:new Date().toISOString(),by:(ME&&ME.id)||'',file:(U.names||[]).join(', ')}};
+  const out={stops:R.stops,next:R.next,khs:R.khs||'',items:R.items,meta:{at:new Date().toISOString(),by:(ME&&ME.id)||'',file:(U.names||[]).join(', ')}};
   try{
     PT.busy=true;
     await DB.doc('shared/pt'+(M.suffix||'')).set(out);
