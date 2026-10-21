@@ -93,6 +93,11 @@ tr.psel td:first-child{box-shadow:inset 4px 0 0 var(--blue)}tr.psel td{backgroun
 .stc{white-space:nowrap;font-size:12px}.stc .sdot{margin:0 2px 0 6px}
 .ptt tr.flt th{top:30px;position:sticky;background:var(--head);padding:3px 4px;z-index:2}
 .pf{width:100%;min-width:70px;box-sizing:border-box;padding:3px 5px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:12px var(--font)}
+.hs .cb.pb{white-space:nowrap;padding:0 5px;min-width:19px;width:auto;line-height:15px}
+#modal.ptx .mb{grid-template-columns:minmax(0,.7fr) minmax(0,1.3fr)}
+#modal.ptx .mini{white-space:nowrap}
+#modal.ptx .tbl td,#modal.ptx .tbl th{padding-left:6px;padding-right:6px}
+#modal.ptx td.n small{white-space:nowrap}
 @media(max-width:700px){#ptView{padding:10px 8px}}
 `;document.head.appendChild(css);
 
@@ -711,6 +716,7 @@ view.addEventListener('change',e=>{const sl=e.target.closest('select[data-pf]');
 ['cnt','cls','info','head','sub','cells'].forEach(k=>{const f=PTX[k];PTX[k]=function(){try{return f.apply(this,arguments)}catch(e){console.error('PTX.'+k,e);return k==='cnt'?0:(k==='cells'?'<td></td><td></td>':'')}}});
 const _rn=renderNode;
 renderNode=function(){
+  modal.classList.toggle('ptx',!!PTX.on);
   try{_rn()}catch(e){
     console.error('renderNode',e);const was=PTX.on;PTX.on=false;
     try{_rn();toast('Modo parada: no se pudo mostrar este subconjunto con las columnas de parada ('+String(e&&e.message||e).slice(0,80)+')',9000)}
