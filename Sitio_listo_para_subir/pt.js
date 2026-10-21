@@ -11,7 +11,7 @@ const mcls=m=>{m=String(m||'').toUpperCase();if(!m)return '';const c=m[0];if(c==
 const mtitle=m=>{const f=MARKS.find(x=>x[0]===m);return f?f[1]:m};
 
 // ---------- estado ----------
-const PT={docs:{},sub:{},mode:'crit',view:'sel',open:{},ver:{},auto:true,f:{stop:null,cls:'',stk:'',q:'',all:false,pend:false,gap:''},up:null};
+const PT={docs:{},sub:{},mode:'crit',view:'sel',open:{},ver:{},auto:true,pf:{},f:{stop:null,cls:'',stk:'',q:'',all:false,pend:false,gap:''},up:null};
 try{if(localStorage.getItem('ptAuto')==='0')PT.auto=false}catch(e){}
 try{const v=localStorage.getItem('ptMode');if(v==='pt')PT.mode='pt';const w=localStorage.getItem('ptView');if(['sel','plan','hist'].includes(w))PT.view=w}catch(e){}
 const doc=()=>M&&PT.docs[M.id]||null;
@@ -91,6 +91,8 @@ tr.psel td:first-child{box-shadow:inset 4px 0 0 var(--blue)}tr.psel td{backgroun
 .ptt .mini2{width:100%}.ptt .mini2 td{border-bottom:1px solid var(--soft);padding:3px 6px}
 .ptt input.pn{width:100%;min-width:160px;box-sizing:border-box;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:12px var(--font)}
 .stc{white-space:nowrap;font-size:12px}.stc .sdot{margin:0 2px 0 6px}
+.ptt tr.flt th{top:30px;position:sticky;background:var(--head);padding:3px 4px;z-index:2}
+.pf{width:100%;min-width:70px;box-sizing:border-box;padding:3px 5px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:12px var(--font)}
 @media(max-width:700px){#ptView{padding:10px 8px}}
 `;document.head.appendChild(css);
 
@@ -439,9 +441,7 @@ function autoDue(d){
   itemsOf(d).forEach(it=>{
     const py=perYears(it.per);if(!py)return;
     const cur=it.hist&&it.hist[nx];if(cur&&mcls(cur)==='des')return;
-    let last=0,lastS='';
-    stops.slice(0,ni).forEach(s=>{if(skip.has(s))return;const m=it.hist&&it.hist[s];if(m&&mcls(m)==='chg'&&!String(m).includes('?')){const y=yrOf(s);if(y>=last){last=y;lastS=s}}});
-    if(!last||ny-last<py-0.01)return;
+    const lc=lastChange(it,d);if(!lc||ny-lc.y<py-0.01)return;const lastS=lc.s;
     const yy=Math.round(py*10)/10;
     out.push({it,why:'Último cambio '+lastS+' · periodo '+it.per+' ('+yy+(yy===1?' año':' años')+') → le toca en '+nx+(String(it.per).includes('?')?' · periodo dudoso':''),m:cur&&['chg','alm','pre'].includes(mcls(cur))?String(cur).replace('?',''):'X'});
   });
@@ -458,6 +458,42 @@ function psEff(){
       eff[k]=Object.assign(nodeEntry(node,{m:a.m,by:'',at:''}),{auto:1,why:a.why})})}
   PS.E={m:mid,sig,v:eff};return eff;
 }
+function fmtPer(per){
+  const s=String(per==null?'':per).trim();if(!s)return '<span class="ptmeta">—</span>';
+  const n=parseFloat(s.replace(/(\d)\.(\d{3})(?!\d)/g,'$1$2').replace(',','.'));
+  if(!isNaN(n)&&n>=100&&/^[\d.,\s]+\??$/.test(s))return esc(n.toLocaleString('es-ES'))+' h'+(s.includes('?')?'?':'');
+  return esc(s);
+}
+function lastChange(it,d){
+  const stops=stopsOf(d),nx=d.next&&stops.includes(d.next)?d.next:null,ni=nx?stops.indexOf(nx):stops.length,skip=new Set(d.skip||[]);
+  let best=null;
+  stops.slice(0,ni).forEach(s=>{if(skip.has(s))return;const m=it.hist&&it.hist[s];if(m&&mcls(m)==='chg'&&!String(m).includes('?')){const y=yrOf(s);if(!best||y>=best.y)best={s,y}}});
+  return best;
+}
+function ptIndex(){
+  const d=doc(),sig=M.id+'|'+(PT.ver[M.id]||0);
+  if(PT.PI&&PT.PI.sig===sig)return PT.PI;
+  const pi=new Map();itemsOf(d).forEach(it=>{const k=K(it.code);if(!pi.has(k))pi.set(k,[]);pi.get(k).push(it)});
+  const due=new Map();if(d)autoDue(d).forEach(a=>due.set(a.it.id,a));
+  PT.PI={sig,pi,due};return PT.PI;
+}
+function ptItemFor(n){const a=ptIndex().pi.get(K(n.code));return a?(a.find(x=>String(x.pos)===String(n.pos))||a[0]):null}
+function dueMap(){return ptIndex().due}
+let ELSET=null;
+function elecSet(){try{const cur=window.ELECCUR?window.ELECCUR():null;return new Set((cur||[]).map(x=>K(x.code)))}catch(e){return new Set()}}
+function critOfNode(n,isA,es){
+  if(isA)return {cnt:n.cc||0,orig:[],is:(n.cc||0)>0};
+  const orig=[];if(n.crit&&n.crit.length)critOrig(CRIT[n.crit[0]]).forEach(o=>{if(!orig.includes(o))orig.push(o)});
+  if(es&&es.has(K(n.code))&&!orig.includes('elec'))orig.push('elec');
+  return {cnt:orig.length?1:0,orig,is:orig.length>0};
+}
+PTX.cells=n=>{
+  if(n.kids.length)return '<td></td><td></td>';
+  const d=doc(),it=d&&ptItemFor(n);
+  if(!it)return '<td class="n"><span class="ptmeta">—</span></td><td><span class="ptmeta">—</span></td>';
+  const lc=lastChange(it,d),due=dueMap().get(it.id);
+  return `<td class="n" title="${esc(it.per||'')}">${fmtPer(it.per)}</td><td>${lc?`<b title="Última parada con X">${esc(lc.s)}</b>`:'<span class="ptmeta">sin registro</span>'}${due?` <span class="mk alm" style="font-family:inherit" title="${esc(due.why)}">toca</span>`:''}</td>`;
+};
 function persist(k,extra){
   const e=psEff()[k];
   if(e&&e.auto){const f=Object.assign({},e,{by:(ME&&ME.id)||'',at:new Date().toISOString(),src:'periodo'},extra);delete f.auto;delete f.why;return psPatch({[k]:f})}
@@ -536,13 +572,13 @@ modal.addEventListener('click',e=>{
 
 // ---------- vista "Plan de la parada" ----------
 function lookups(){
-  const pi=new Map(),ci=new Map();
-  const d=doc();itemsOf(d).forEach(it=>{const k=K(it.code);if(!pi.has(k))pi.set(k,it)});
+  const ci=new Map();
   Object.values(CRITMAP||{}).forEach(v=>{if(v&&v.code&&v.sap){const k=K(v.code);if(!ci.has(k))ci.set(k,v)}});
-  return {pi,ci,mat:(d&&d.mat)||null};
+  const d=doc();
+  return {pi:ptIndex().pi,ci,mat:(d&&d.mat)||null};
 }
-function codeInfo(code,need,L){
-  const k=K(code),it=L.pi.get(k);
+function codeInfo(code,need,L,pos){
+  const k=K(code),arr=L.pi.get(k),it=arr&&(arr.find(x=>String(x.pos)===String(pos))||arr[0]);
   if(it)return {it,S:stockOf(it,need)};
   const c=L.ci.get(k);
   const x=!c&&L.mat&&L.mat[k];
@@ -559,47 +595,78 @@ function histMini(it,stops,nx){
 }
 function renderPlan(){
   const I=PSI(),sel=psEff(),d=doc(),stops=stopsOf(d),nx=d&&d.next&&stops.includes(d.next)?d.next:null;
-  const L=lookups();
+  const L=lookups(),es=elecSet(),F=PT.pf;
   const ents=Object.entries(sel).map(([k,e])=>{const id=(PS.km[M.id]||{m:new Map()}).m.get(k);return {k,e,n:id!=null?N[id]:null}});
   ents.sort((a,b)=>((a.e.path||'')+'|'+String(a.e.pos).padStart(6,'0')).localeCompare((b.e.path||'')+'|'+String(b.e.pos).padStart(6,'0'),'es',{numeric:true}));
+  // datos calculados por fila
+  const R=ents.map(({k,e,n})=>{
+    const isA=e.k==='a'&&!!n;let S=null,counts=null,it=null,lc=null,hist='',khs='';
+    if(n&&!isA){const ci=codeInfo(n.code,n.qty>0?n.qty:1,L,n.pos);S=ci.S;it=ci.it||ptItemFor(n);hist=histMini(it,stops,nx);
+      if(it){lc=d?lastChange(it,d):null;khs=it.req>0?`<b>${fmtQ(it.req)}</b>`:it.kn?'<span class="mk des" style="text-decoration:none">no está</span>':''}}
+    else if(n){counts={ok:0,part:0,none:0,nosap:0};let withH=0;leafNodes(n).forEach(i=>{const c=N[i],ci=codeInfo(c.code,c.qty>0?c.qty:1,L,c.pos);counts[ci.S.s]++;if(ci.it&&nx&&ci.it.hist&&ci.it.hist[nx])withH++});hist=withH?`<span class="ptmeta">${withH} pz. con marca en ${esc(nx)}</span>`:''}
+    const cr=n?critOfNode(n,isA,es):{is:false,orig:[],cnt:0};
+    return {k,e,n,isA,S,counts,it,lc,hist,khs,cr,per:it?it.per:''};
+  });
+  // filtros
+  const nq=v=>norm(v||'');
+  const rows=R.filter(r=>{
+    const e=r.e;
+    if(F.code&&!nq(e.code).includes(nq(F.code)))return false;
+    if(F.desc&&!nq(e.desc+' '+(e.path||'')+' '+(e.why||'')).includes(nq(F.desc)))return false;
+    if(F.per&&!nq(r.per).includes(nq(F.per)))return false;
+    if(F.last&&!nq(r.lc?r.lc.s:'').includes(nq(F.last)))return false;
+    if(F.note&&!nq(e.note).includes(nq(F.note)))return false;
+    if(F.typ&&(F.typ==='a')!==r.isA)return false;
+    if(F.mk&&(e.m||'X')!==F.mk)return false;
+    if(F.src&&(F.src==='auto')!==!!e.auto)return false;
+    if(F.crit){if(F.crit==='yes'&&!r.cr.is)return false;if(F.crit==='no'&&r.cr.is)return false;if(['parada','manual','elec','otro'].includes(F.crit)&&!r.cr.orig.includes(F.crit))return false}
+    if(F.stk){if(r.S){if(r.S.s!==F.stk)return false}else if(!(r.counts&&r.counts[F.stk]>0))return false}
+    return true});
+  const anyF=Object.values(F).some(v=>v);
   // estadísticas sobre las piezas únicas cubiertas
   const cov=[];N.forEach(n=>{if(n.l>=2&&!n.kids.length&&I.cov[n.id]!=null)cov.push(n)});
-  const sc={ok:0,part:0,none:0,nosap:0};cov.forEach(n=>{sc[codeInfo(n.code,n.qty>0?n.qty:1,L).S.s]++});
-  const nA=ents.filter(x=>x.e.k==='a').length,nAuto=ents.filter(x=>x.e.auto).length,nRej=Object.keys(psRej()).length;
-  const card=(v,l,c)=>`<div class="ptcard k-${c||''}" style="cursor:default"><b>${v}</b><span>${l}</span></div>`;
-  const body=ents.map(({k,e,n})=>{
-    const isA=e.k==='a'&&n;let stk='',hist='',khs='';
-    if(n&&!isA){const ci=codeInfo(n.code,n.qty>0?n.qty:1,L);const S=ci.S;
-      stk=`<span class="sbox s-${S.s}" title="${SLAB[S.s]}${S.ub?' · ubic. '+esc(S.ub):''}"><span class="sdot s-${S.s}"></span>${S.s==='nosap'?'—':fmtQ(S.st)+' / '+fmtQ(S.need)}</span>`;
-      hist=histMini(ci.it,stops,nx);
-      if(ci.it)khs=ci.it.req>0?`<b>${fmtQ(ci.it.req)}</b>`:ci.it.kn?'<span class="mk des" style="text-decoration:none">no está</span>':''}
-    else if(n){const lv=leafNodes(n),c={ok:0,part:0,none:0,nosap:0};let withH=0;lv.forEach(i=>{const ci=codeInfo(N[i].code,N[i].qty>0?N[i].qty:1,L);c[ci.S.s]++;if(ci.it&&nx&&ci.it.hist&&ci.it.hist[nx])withH++});
-      stk=dotsFor(c);hist=withH?`<span class="ptmeta">${withH} pz. con marca en ${esc(nx)}</span>`:''}
+  const sc={ok:0,part:0,none:0,nosap:0};let ncr=0;cov.forEach(n=>{sc[codeInfo(n.code,n.qty>0?n.qty:1,L,n.pos).S.s]++;if(critOfNode(n,false,es).is)ncr++});
+  const nA=R.filter(r=>r.isA).length,nAuto=R.filter(r=>r.e.auto).length,nRej=Object.keys(psRej()).length;
+  const act=(k,v)=>F[k]===v?' on':'';
+  const card=(v,l,c,key,val)=>`<button type="button" class="ptcard k-${c||''}${key?act(key,val):(anyF?'':' on')}" data-pcard="${key||'all'}:${val||''}"><b>${v}</b><span>${l}</span></button>`;
+  const opt=(arr,cur)=>arr.map(([v,t])=>`<option value="${esc(v)}" ${cur===v?'selected':''}>${esc(t)}</option>`).join('');
+  const fi=(k,ph)=>`<input type="search" class="pf" data-pf="${k}" value="${esc(F[k]||'')}" placeholder="${ph}">`;
+  const fs=(k,arr)=>`<select class="pf" data-pf="${k}">${opt([['','Todos']].concat(arr),F[k]||'')}</select>`;
+  const body=rows.map(r=>{
+    const {k,e,n,isA,S,counts,lc}=r;
     const open=PT.open[k];
+    const stk=S?`<span class="sbox s-${S.s}" title="${SLAB[S.s]}${S.ub?' · ubic. '+esc(S.ub):''}"><span class="sdot s-${S.s}"></span>${S.s==='nosap'?'—':fmtQ(S.st)+' / '+fmtQ(S.need)}</span>`:(counts?dotsFor(counts):'');
     let sub='';
     if(isA&&open){
-      sub=`<tr class="sublist"><td colspan="10"><table class="mini2">${leafNodes(n).map(i=>{const c=N[i],ci=codeInfo(c.code,c.qty>0?c.qty:1,L),S=ci.S;
-        return `<tr><td class="code">${esc(c.code)}</td><td>${esc(c.desc)}</td><td class="c">${fmtQ(c.qty)}</td><td class="sbox s-${S.s}"><span class="sdot s-${S.s}"></span>${S.s==='nosap'?'—':fmtQ(S.st)+' / '+fmtQ(S.need)}</td><td>${histMini(ci.it,stops,nx)}</td></tr>`}).join('')}</table></td></tr>`}
+      sub=`<tr class="sublist"><td colspan="13"><table class="mini2">${leafNodes(n).map(i=>{const c=N[i],ci=codeInfo(c.code,c.qty>0?c.qty:1,L,c.pos),S2=ci.S,it2=ci.it||ptItemFor(c),lc2=it2&&d?lastChange(it2,d):null;
+        return `<tr><td class="code">${esc(c.code)}</td><td>${esc(c.desc)}</td><td class="c">${fmtQ(c.qty)}</td><td class="sbox s-${S2.s}"><span class="sdot s-${S2.s}"></span>${S2.s==='nosap'?'—':fmtQ(S2.st)+' / '+fmtQ(S2.need)}</td><td>${it2?fmtPer(it2.per):''}</td><td>${lc2?esc(lc2.s):''}</td><td>${histMini(it2,stops,nx)}</td></tr>`}).join('')}</table></td></tr>`}
     const mk=e.m||'X';
+    const crit=r.cr.is?(isA?`<span class="mk des" style="text-decoration:none;background:var(--crit)" title="Repuestos críticos dentro del conjunto">★ ${r.cr.cnt}</span>`:`<span title="${esc(r.cr.orig.map(o=>ORIG_LAB[o]).join(' · '))}"><span class="mk des" style="text-decoration:none;background:var(--crit)">★</span> <small>${esc(r.cr.orig.map(o=>ORIG_LAB[o]).join(' · '))}</small></span>`):'';
     return `<tr class="${n?'':'orph'}"><td>${stk}</td><td class="code">${esc(e.code)}${n?` <a href="#" data-plano="${n.id}" title="Ver en el despiece">⌖</a>`:''}</td>
       <td>${isA?`<a href="#" data-ptog="${esc(k)}">${open?'▾':'▸'}</a> `:''}${e.auto?'<span class="mk alm" title="Sugerida por periodo de cambio" style="font-family:inherit">✨ sugerida</span> ':''}${esc(e.desc)}<div class="grp">${esc(e.path||'')}${n?'':' · (ya no figura en el despiece)'}</div>${e.auto?`<div class="grp" style="color:var(--blue)">${esc(e.why||'')}</div>`:''}</td>
-      <td>${isA?`Conjunto · ${n?leafNodes(n).length:'?'} pz`:'Pieza'}</td><td class="c">${fmtQ(e.qty)}</td><td>${hist}</td><td class="c">${khs}</td>
+      <td>${isA?`Conjunto · ${n?leafNodes(n).length:'?'} pz`:'Pieza'}</td><td class="c">${fmtQ(e.qty)}</td>
+      <td class="c">${isA?'':fmtPer(r.per)}</td><td>${isA?'':(lc?`<b>${esc(lc.s)}</b>`:'<span class="ptmeta">sin registro</span>')}</td><td>${crit}</td>
+      <td>${r.hist}</td><td class="c">${r.khs}</td>
       <td class="c ${CAN?'ed':''}" data-pm="${esc(k)}"><span class="mk ${mcls(mk)}" title="${esc(mtitle(mk))}">${esc(mk)}</span></td>
       <td>${CAN?`<input class="pn" data-pnote="${esc(k)}" value="${esc(e.note||'')}" placeholder="nota…">`:esc(e.note||'')}</td>
       <td style="white-space:nowrap">${CAN?`${e.auto?`<button class="ptb ghost" data-pacc="${esc(k)}" title="Confirmar en el plan">✓</button>`:''}<button class="ptb ghost" data-prm="${esc(k)}" title="${e.auto?'Descartar sugerencia':'Quitar de la parada'}">✕</button>`:''}</td></tr>${sub}`}).join('');
+  const fe=document.activeElement&&document.activeElement.dataset&&document.activeElement.dataset.pf;
+  const fp=fe?document.activeElement.selectionStart:0;
   view.innerHTML=`<div class="ptc"><div class="ptbar"><b style="font-size:16px">Plan de la parada · ${esc(M.short||M.name)}</b>${nx?`<span class="ptmeta">Próxima parada: <b>${esc(nx)}</b></span>`:''}<label class="ptmeta" title="Piezas cuyo periodo de cambio vence en la próxima parada, según el último cambio registrado"><input type="checkbox" id="ptAuto" ${PT.auto?'checked':''}> ✨ Sugerir por periodo de cambio</label><span class="sp"></span>
       ${CAN&&d?`<button class="ptb ghost" id="ptImp" title="Añade al plan las piezas marcadas en la próxima parada en el libro de operaciones">Traer del libro (${esc(nx||'—')})</button>`:''}
-      ${CAN&&nAuto?`<button class="ptb acc" id="ptAccAll">Confirmar las ${nAuto} sugeridas</button>`:''}${CAN&&nRej?`<button class="ptb ghost" id="ptRejClr">Recuperar ${nRej} descartadas</button>`:''}<button class="ptb ghost" id="ptExpP">Exportar plan (Excel)</button>${CAN&&ents.length?'<button class="ptb ghost" id="ptClrAll">Vaciar plan</button>':''}
+      ${CAN&&nAuto?`<button class="ptb acc" id="ptAccAll">Confirmar las ${nAuto} sugeridas</button>`:''}${CAN&&nRej?`<button class="ptb ghost" id="ptRejClr">Recuperar ${nRej} descartadas</button>`:''}<button class="ptb ghost" id="ptExpP">Exportar lista (Excel)</button>${CAN&&ents.length?'<button class="ptb ghost" id="ptClrAll">Vaciar plan</button>':''}
       <button class="ptb acc" id="ptGoSel">＋ Seleccionar en el plano</button></div>
-    <div class="ptcards">${card(ents.length,'elementos en el plan','chg')}${card(nAuto,'sugeridos por periodo','alm')}${card(nA,'subconjuntos completos','alm')}${card(cov.length,'piezas incluidas')}${card(sc.ok,'con stock suficiente','ok')}${card(sc.part,'stock parcial','part')}${card(sc.none,'sin stock','none')}${card(sc.nosap,'sin SAP / sin dato','nosap')}</div>
-    <div class="ptleg"><span>Stock: <span class="sdot s-ok"></span>suficiente <span class="sdot s-part"></span>parcial <span class="sdot s-none"></span>sin stock <span class="sdot s-nosap"></span>sin dato · El stock y el historial salen del libro de operaciones y de la lista de críticos (carga el Excel de parada para completarlos).</span></div></div>
-    <div class="ptc" style="padding:0"><div class="ptwrap"><table class="ptt"><thead><tr><th>Stock / nec.</th><th>Código</th><th>Descripción</th><th>Tipo</th><th class="c">Cant.</th><th>Historial</th><th class="c" title="Propuesta KHS">KHS</th><th class="c">Marca</th><th>Nota</th><th></th></tr></thead>
-    <tbody>${body||`<tr><td colspan="10" class="ptempty">Todavía no has elegido nada para la próxima parada.<br>Pulsa «Seleccionar en el plano», abre un subconjunto y añade piezas o el conjunto completo${CAN&&d?', o usa «Traer del libro» para partir de las marcas del Excel':''}.</td></tr>`}</tbody></table></div></div>`;
+    <div class="ptcards">${card(ents.length,'elementos en el plan','chg')}${card(nAuto,'sugeridos por periodo','alm','src','auto')}${card(nA,'subconjuntos completos','alm','typ','a')}${card(cov.length,'piezas incluidas')}${card(ncr,'piezas críticas','none','crit','yes')}${card(sc.ok,'con stock suficiente','ok','stk','ok')}${card(sc.part,'stock parcial','part','stk','part')}${card(sc.none,'sin stock','none','stk','none')}${card(sc.nosap,'sin SAP / sin dato','nosap','stk','nosap')}</div>
+    <div class="ptleg"><span>Pulsa una tarjeta para filtrar · usa la fila de filtros bajo los títulos (se aplican según escribes) · ${rows.length} de ${R.length} elementos${anyF?' <a href="#" id="ptFclr">Quitar filtros</a>':''}</span></div></div>
+    <div class="ptc" style="padding:0"><div class="ptwrap"><table class="ptt"><thead><tr><th>Stock / nec.</th><th>Código</th><th>Descripción</th><th>Tipo</th><th class="c">Cant.</th><th class="c" title="Periodo de cambio según el libro de operaciones">Periodo (h)</th><th title="Última parada en la que se cambió (X)">Último cambio</th><th>Crítico</th><th>Historial</th><th class="c" title="Propuesta KHS">KHS</th><th class="c">Marca</th><th>Nota</th><th></th></tr>
+      <tr class="flt"><th>${fs('stk',[['ok','Suficiente'],['part','Parcial'],['none','Sin stock'],['nosap','Sin dato']])}</th><th>${fi('code','código…')}</th><th>${fi('desc','descripción / ruta…')} ${fs('src',[['auto','✨ Sugeridas'],['conf','Confirmadas']])}</th><th>${fs('typ',[['a','Conjunto'],['p','Pieza']])}</th><th></th><th>${fi('per','h…')}</th><th>${fi('last','parada…')}</th><th>${fs('crit',[['yes','Críticos'],['no','No críticos'],['parada','Parada'],['manual','Manual'],['elec','⚡ Eléctrico'],['otro','Otro']])}</th><th></th><th></th><th>${fs('mk',[['X','X'],['A','A'],['P','P'],['R','R'],['V','V'],['C','C'],['D','D']])}</th><th>${fi('note','nota…')}</th><th></th></tr></thead>
+    <tbody>${body||`<tr><td colspan="13" class="ptempty">${R.length?'Ningún elemento con estos filtros.':'Todavía no has elegido nada para la próxima parada.<br>Pulsa «Seleccionar en el plano», abre un subconjunto y añade piezas o el conjunto completo'+(CAN&&d?', o usa «Traer del libro» para partir de las marcas del Excel':'')+'.'}</td></tr>`}</tbody></table></div></div>`;
+  if(fe){const el=view.querySelector(`[data-pf="${fe}"]`);if(el){el.focus();try{el.setSelectionRange(fp,fp)}catch(_){}}}
   const b=s=>view.querySelector(s);
   if(b('#ptGoSel'))b('#ptGoSel').onclick=()=>{PT.view='sel';try{localStorage.setItem('ptView','sel')}catch(_){}sync()};
   if(b('#ptImp'))b('#ptImp').onclick=importLibro;
-  if(b('#ptExpP'))b('#ptExpP').onclick=exportPlan;
-  const ca=b('#ptClrAll');if(ca)ca.onclick=()=>{if(ca.dataset.sure){psPatch(Object.fromEntries(Object.keys(sel).map(k=>[k,null])));toast('Plan vaciado')}else{ca.dataset.sure=1;ca.textContent='¿Seguro? Pulsa otra vez';setTimeout(()=>{if(ca.isConnected){delete ca.dataset.sure;ca.textContent='Vaciar plan'}},4000)}};
+  if(b('#ptExpP'))b('#ptExpP').onclick=()=>exportPlan(rows);
+  const ca=b('#ptClrAll');if(ca)ca.onclick=()=>{if(ca.dataset.sure){psPatch(Object.fromEntries(Object.keys(sel).filter(k=>!sel[k].auto).map(k=>[k,null])));Object.entries(sel).forEach(([k,en])=>{if(en.auto)psRemove(k)});toast('Plan vaciado')}else{ca.dataset.sure=1;ca.textContent='¿Seguro? Pulsa otra vez';setTimeout(()=>{if(ca.isConnected){delete ca.dataset.sure;ca.textContent='Vaciar plan'}},4000)}};
 }
 function importLibro(){
   const d=doc();if(!d||!CAN)return;const st=d.next||PT.f.stop;const I=PSI(),ch={};let n=0;
@@ -610,18 +677,19 @@ function importLibro(){
   if(!n){toast('No hay piezas nuevas con marca en '+st+' que estén en el despiece de esta máquina.');return}
   psPatch(ch);toast(n+' piezas añadidas desde el libro ('+st+')');
 }
-function exportPlan(){
+function exportPlan(rows){
   if(!window.XLSX){toast('No se pudo cargar el lector de Excel');return}
-  const sel=psEff(),L=lookups(),d=doc();
-  const ents=Object.entries(sel).map(([k,e])=>{const id=(PS.km[M.id]||{m:new Map()}).m.get(k);return {k,e,n:id!=null?N[id]:null}});
-  const A=[['Subconjunto','Código','Descripción','Tipo','Cant.','Marca','Nota','Elegido por','Fecha']].concat(ents.map(({e})=>[e.path||'',e.code,e.desc,e.k==='a'?'Conjunto':'Pieza',e.qty==null?'':e.qty,e.m||'X',e.note||'',e.by||'',e.at?fmtD(e.at):'']));
-  const seen=new Set(),B=[['Conjunto elegido','Código','Descripción','Cant.','SAP','Stock','Necesario','Estado stock','Ubicación','Marca','Nota']];
-  ents.forEach(({e,n})=>{if(!n)return;leafNodes(n).forEach(i=>{const c=N[i];const key=e.k+'|'+i;if(seen.has(i))return;seen.add(i);const ci=codeInfo(c.code,c.qty>0?c.qty:1,L),S=ci.S;
-    B.push([(e.path?e.path+' › ':'')+e.pos+' '+e.desc,c.code,c.desc,c.qty==null?'':c.qty,S.sap||'',S.st==null?'':S.st,S.need,SLAB[S.s],S.ub||'',e.m||'X',e.note||''])})});
-  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(A),'Plan de la parada');XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(B),'Piezas incluidas');
-  XLSX.writeFile(wb,'plan_parada_'+(M.short||M.id).replace(/\W+/g,'_')+'.xlsx');
+  const L=lookups(),d=doc();
+  const A=[['Subconjunto','Código','Descripción','Tipo','Cant.','Periodo (h)','Último cambio','Crítico','Marca','Origen','Stock','Necesario','Estado stock','Nota']].concat(rows.map(r=>{const e=r.e;return [e.path||'',e.code,e.desc,r.isA?'Conjunto':'Pieza',e.qty==null?'':e.qty,r.per||'',r.lc?r.lc.s:'',r.cr.is?(r.isA?r.cr.cnt+' críticas dentro':r.cr.orig.map(o=>ORIG_LAB[o]).join(' · ')):'',e.m||'X',e.auto?'Sugerida por periodo':'Confirmada',r.S&&r.S.st!=null?r.S.st:'',r.S?r.S.need:'',r.S?SLAB[r.S.s]:'',e.note||'']}));
+  const seen=new Set(),B=[['Conjunto elegido','Código','Descripción','Cant.','SAP','Stock','Necesario','Estado stock','Ubicación','Periodo (h)','Último cambio','Marca','Nota']],es=elecSet();
+  rows.forEach(r=>{const {e,n}=r;if(!n)return;leafNodes(n).forEach(i=>{const c=N[i];if(seen.has(i))return;seen.add(i);const ci=codeInfo(c.code,c.qty>0?c.qty:1,L,c.pos),S=ci.S,it=ci.it||ptItemFor(c),lc=it&&d?lastChange(it,d):null;
+    B.push([(e.path?e.path+' › ':'')+e.pos+' '+e.desc,c.code,c.desc,c.qty==null?'':c.qty,S.sap||'',S.st==null?'':S.st,S.need,SLAB[S.s],S.ub||'',it?it.per:'',lc?lc.s:'',e.m||'X',e.note||''])})});
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(A),'Lista de la compra');XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(B),'Piezas incluidas');
+  XLSX.writeFile(wb,'lista_parada_'+(M.short||M.id).replace(/\W+/g,'_')+'.xlsx');
 }
 view.addEventListener('click',e=>{
+  const pc=e.target.closest('[data-pcard]');if(pc&&PT.view==='plan'){const [k,v]=pc.dataset.pcard.split(':');if(k==='all'||PT.pf[k]===v)PT.pf={};else PT.pf=Object.assign({},k==='stk'||k==='crit'||k==='typ'||k==='src'?{}:{},{[k]:v});renderPlan();return}
+  if(e.target.closest('#ptFclr')){e.preventDefault();PT.pf={};renderPlan();return}
   const t=e.target.closest('[data-ptog]');if(t){e.preventDefault();PT.open[t.dataset.ptog]=!PT.open[t.dataset.ptog];renderPlan();return}
   const r=e.target.closest('[data-prm]');if(r){psRemove(r.dataset.prm);return}
   const pa=e.target.closest('[data-pacc]');if(pa){persist(pa.dataset.pacc,{});return}
@@ -629,7 +697,8 @@ view.addEventListener('click',e=>{
   if(e.target.closest('#ptRejClr')&&CAN){const mid=M.id,d=PS.docs[mid];const rj=Object.fromEntries(Object.keys(psRej()).map(k=>[k,null]));d.rej={};PS.ver[mid]=(PS.ver[mid]||0)+1;PS.I=null;const sfx=M.suffix||'';enqueue(()=>dbMerge('shared/ps'+sfx,{rej:rj},JSON.parse(JSON.stringify(d))));drawSub();render();return}
   const pm=e.target.closest('td[data-pm]');if(pm&&CAN){const rc=pm.getBoundingClientRect();showMenu(null,'',rc.left,rc.bottom+4);menu._t={pk:pm.dataset.pm}}
 });
-view.addEventListener('change',e=>{const i=e.target.closest('[data-pnote]');if(i)persist(i.dataset.pnote,{note:i.value});const c=e.target.closest('#ptAuto');if(c){PT.auto=c.checked;try{localStorage.setItem('ptAuto',PT.auto?'1':'0')}catch(_){}PS.I=null;drawSub();render()}});
+view.addEventListener('input',e=>{const f=e.target.closest('input[data-pf]');if(f){PT.pf[f.dataset.pf]=f.value;renderPlan()}});
+view.addEventListener('change',e=>{const sl=e.target.closest('select[data-pf]');if(sl){PT.pf[sl.dataset.pf]=sl.value;renderPlan();return}const i=e.target.closest('[data-pnote]');if(i)persist(i.dataset.pnote,{note:i.value});const c=e.target.closest('#ptAuto');if(c){PT.auto=c.checked;try{localStorage.setItem('ptAuto',PT.auto?'1':'0')}catch(_){}PS.I=null;drawSub();render()}});
 
 sync();
 })();
