@@ -217,8 +217,8 @@ function row(n,ind){
   const cr=n.crit.map(i=>CRIT[i]);
   const ci=PTX.on?PTX.info(n):critInfo(n)+actBtn(n);
   if(isA){const c=leaves(n.id).length;
-    return `<tr class="asm${PTX.on?PTX.cls(n):(cr.length?' crit':'')}" data-open="${n.id}" data-row="${n.id}"><td class="n">${n.pos}</td><td class="code">${esc(n.code)}</td><td style="padding-left:${8+ind*14}px">▸ ${esc(n.desc)}${ci}</td><td class="n">${fmtQ(n.qty)}</td><td></td><td class="n"></td><td><span class="open">abrir · ${c} pz${n.pages.length?' · p.'+n.pages[0]:''}</span>${cb2(n)}</td>${PTX.on?PTX.cells(n):''}</tr>`}
-  return `<tr data-row="${n.id}" class="${(n.mark==='V'?'v ':'')+(PTX.on?PTX.cls(n):(cr.length?'crit':''))}"><td class="n">${n.pos}</td><td class="code">${esc(n.code)}</td><td style="padding-left:${8+ind*14}px">${esc(n.desc)}${ci}</td><td class="n">${fmtQ(n.qty)}</td><td>${n.mark?`<span class="tag ${n.mark}">${n.mark}</span>`:''}</td><td class="n">${n.hours?n.hours.toLocaleString('es-ES'):''}</td><td style="text-align:center">${n.obs==='J'?'✓':''}</td>${PTX.on?PTX.cells(n):''}</tr>`;
+    return `<tr class="asm${PTX.on?PTX.cls(n):(cr.length?' crit':'')}" data-open="${n.id}" data-row="${n.id}"><td class="n">${n.pos}</td><td class="code">${esc(n.code)}</td><td style="padding-left:${8+ind*14}px">▸ ${esc(n.desc)}${ci}</td><td class="n">${fmtQ(n.qty)}</td><td></td>${PTX.on?'':'<td class="n"></td>'}<td><span class="open">abrir · ${c} pz${n.pages.length?' · p.'+n.pages[0]:''}</span>${cb2(n)}</td>${PTX.on?PTX.cells(n):''}</tr>`}
+  return `<tr data-row="${n.id}" class="${(n.mark==='V'?'v ':'')+(PTX.on?PTX.cls(n):(cr.length?'crit':''))}"><td class="n">${n.pos}</td><td class="code">${esc(n.code)}</td><td style="padding-left:${8+ind*14}px">${esc(n.desc)}${ci}</td><td class="n">${fmtQ(n.qty)}</td><td>${n.mark?`<span class="tag ${n.mark}">${n.mark}</span>`:''}</td>${PTX.on?'':`<td class="n">${n.hours?n.hours.toLocaleString('es-ES'):''}</td>`}<td style="text-align:center">${n.obs==='J'?'✓':''}</td>${PTX.on?PTX.cells(n):''}</tr>`;
 }
 function csvQ(v){return '"'+String(v==null?'':v).replace(/"/g,'""')+'"'}
 function dlCsv(name,h,rows){saveFile(name,'\ufeff'+[h].concat(rows).map(r=>r.map(csvQ).join(';')).join('\n'))}
@@ -248,7 +248,7 @@ function renderNode(){
   const crumb=['<a data-go="'+ROOT+'">'+esc(M.short)+'</a>'].concat(pth.map((i,k)=>k===pth.length-1?esc(N[i].pos+' '+N[i].desc):`<a data-go="${i}">${esc(N[i].pos+' '+N[i].desc)}</a>`)).join(' › ');
   let body='';
   if(flat){
-    const walk2=(id,d)=>{N[id].kids.forEach(k=>{const c=N[k];if(c.kids.length){body+=`<tr class="asm${PTX.on?PTX.cls(c):(c.crit.length?' crit':'')}" data-open="${c.id}" data-row="${c.id}"><td class="n">${c.pos}</td><td class="code">${esc(c.code)}</td><td style="padding-left:${8+d*14}px">▸ ${esc(c.desc)}${PTX.on?PTX.info(c):critInfo(c)+actBtn(c)}</td><td class="n">${fmtQ(c.qty)}</td><td></td><td></td><td><span class="open">abrir${c.pages.length?' · p.'+c.pages[0]:''}</span>${cb2(c)}</td>${PTX.on?PTX.cells(c):''}</tr>`;walk2(k,d+1)}else body+=row(c,d)})};
+    const walk2=(id,d)=>{N[id].kids.forEach(k=>{const c=N[k];if(c.kids.length){body+=`<tr class="asm${PTX.on?PTX.cls(c):(c.crit.length?' crit':'')}" data-open="${c.id}" data-row="${c.id}"><td class="n">${c.pos}</td><td class="code">${esc(c.code)}</td><td style="padding-left:${8+d*14}px">▸ ${esc(c.desc)}${PTX.on?PTX.info(c):critInfo(c)+actBtn(c)}</td><td class="n">${fmtQ(c.qty)}</td><td></td>${PTX.on?'':'<td></td>'}<td><span class="open">abrir${c.pages.length?' · p.'+c.pages[0]:''}</span>${cb2(c)}</td>${PTX.on?PTX.cells(c):''}</tr>`;walk2(k,d+1)}else body+=row(c,d)})};
     walk2(cur,0)}
   else body=n.kids.map(k=>row(N[k],0)).join('');
   const lv=leaves(cur),nv=lv.filter(i=>N[i].mark==='V').length;
@@ -261,7 +261,7 @@ function renderNode(){
   <div class="mb"><div class="pic${zoom?' zoom':''}" id="pic">${pic}</div>
   <div class="tbl"><div class="tt"><label><input type="checkbox" id="chFlat" ${flat?'checked':''}> Ver todos los niveles</label><span class="sum">${lv.length} piezas · ${nv} de desgaste${PTX.on?(PTX.cnt(n)?` · <b style="color:var(--blue)">🛠 ${PTX.cnt(n)} en la parada</b>`:''):(n.cc?` · <b style="color:var(--crit-ink)">★ ${n.cc} críticas</b>`:'')}</span>${PTX.on?PTX.head(n):''}</div>
   ${subCrit()}<div class="legend"><i style="background:var(--wear)"></i>Pieza de desgaste (V) con duración en horas<i style="background:var(--crit)"></i>Repuesto crítico<i style="background:var(--tag-e)"></i>E = pieza de repuesto<span style="margin-left:10px">✓ = KHS recomienda tener stock</span></div>
-  <table><thead><tr><th class="n">Pos.</th><th>Código</th><th>Descripción</th><th class="n">Uds</th><th>Tipo</th><th class="n">Duración (h)</th><th>Stock cliente</th>${PTX.on?'<th class="n" title="Periodo de cambio según el libro de operaciones">Periodo (h)</th><th title="Última parada en la que se cambió (X)">Último cambio</th>':''}</tr></thead><tbody>${body||'<tr><td colspan="7" class="nopic">Sin componentes</td></tr>'}</tbody></table></div></div>`;
+  <table><thead><tr><th class="n">Pos.</th><th>Código</th><th>Descripción</th><th class="n">Uds</th><th>Tipo</th>${PTX.on?'':'<th class="n">Duración (h)</th>'}<th>Stock cliente</th>${PTX.on?'<th class="n" title="Periodo de cambio según el libro de operaciones">Periodo (h)</th><th title="Última parada en la que se cambió (X)">Último cambio</th>':''}</tr></thead><tbody>${body||'<tr><td colspan="7" class="nopic">Sin componentes</td></tr>'}</tbody></table></div></div>`;
   loadImgs(modal,M);
   if(hlId!=null){const r=modal.querySelector(`[data-row="${hlId}"]`);if(r){r.classList.add('hl');setTimeout(()=>r.scrollIntoView({block:'center'}),30)}}
   else if(keepScroll){const t=modal.querySelector('.tbl');if(t)t.scrollTop=keepScroll}
