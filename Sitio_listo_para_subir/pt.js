@@ -31,6 +31,35 @@ function stockOf(it,needO){
 }
 const SLAB={ok:'Stock OK',part:'Stock parcial',none:'Sin stock',nosap:'Sin SAP / sin dato'};
 
+// ---------- precios ----------
+// Origen S = precio medio de SAP (columna PrMedioVar de la Lista de materiales) · K = lista de precios de KHS Connect (precio de catálogo) · K0 = KHS «precio a petición»
+const eur=v=>v==null?'':v.toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
+function priceOf(code,it){
+  const d=doc(),k=K(code);
+  if(it&&it.st&&it.st[3]>0)return {v:it.st[3],s:'S'};
+  const m=d&&d.mat&&d.mat[k];if(m&&m[4]>0)return {v:m[4],s:'S'};
+  const kp=d&&d.kp&&d.kp[k];if(kp)return kp[0]>0?{v:kp[0],s:'K',at:kp[1]}:{v:null,s:'K0'};
+  return null;
+}
+// precio de un nodo del despiece: el propio de la pieza o, si es un conjunto sin precio, la suma de sus piezas
+function nodePrice(n,depth){
+  const own=priceOf(n.code,ptItemFor(n));
+  if(own&&own.v!=null)return {v:own.v,s:own.s,sum:false,n:1,tot:1};
+  if(!n.kids.length||(depth||0)>12)return {v:null,s:own?own.s:'',sum:false,n:0,tot:1,req0:!!own};
+  let v=0,c=0,t=0;
+  n.kids.forEach(i=>{const x=nodePrice(N[i],(depth||0)+1);t+=x.tot;c+=x.n;if(x.v!=null)v+=x.v*(N[i].qty>0?N[i].qty:1)});
+  return {v:c?v:null,s:'Σ',sum:true,n:c,tot:t};
+}
+const pxv=x=>x&&x.v!=null?Math.round(x.v*100)/100:'';
+const pxs=x=>x?(x.s==='S'?'SAP (precio medio)':x.s==='K'?'KHS Connect':x.s==='K0'?'KHS: a petición':''):'';
+function priceTxt(x,qty){
+  if(!x)return '<span class="ptmeta">—</span>';
+  if(x.v==null)return x.s==='K0'||x.req0?'<span class="ptmeta" title="KHS Connect no da precio: «precio a petición»">a petición</span>':'<span class="ptmeta">—</span>';
+  const t=x.v*(qty>0?qty:1);
+  const tag=x.sum?` <small class="ptmeta" title="Suma de las piezas con precio (${x.n} de ${x.tot})">Σ ${x.n}/${x.tot}</small>`:x.s==='K'?' <small title="Precio de catálogo de KHS Connect" style="color:var(--blue)">KHS</small>':'';
+  return `<span title="${x.sum?'Suma de piezas con precio':x.s==='K'?'Precio KHS Connect':'Precio medio SAP'}">${eur(qty!=null&&qty!==1&&!x.sum?t:x.v)}</span>${tag}`;
+}
+
 // ---------- UI: pestañas y contenedor ----------
 const css=document.createElement('style');css.textContent=`
 #vTabs{display:inline-flex;border:1px solid #5b6684;border-radius:9px;overflow:hidden;margin-right:6px}
@@ -165,6 +194,7 @@ function renderHist(){
   const cnt={chg:0,alm:0,pre:0,rev:0,des:0};inStop.forEach(it=>{const c=mcls(it.hist[sel]);if(c)cnt[c]++});
   const mat=inStop.filter(it=>['chg','alm','pre'].includes(mcls(it.hist[sel])));
   const sc={ok:0,part:0,none:0,nosap:0};mat.forEach(it=>sc[it.S.s]++);
+  let impTot=0,impSin=0;mat.forEach(it=>{const p=priceOf(it.code,it);if(p&&p.v!=null)impTot+=p.v*it.S.need;else impSin++});
   const gapKn=mat.filter(it=>it.kn),gapKhs=all.filter(it=>it.req>0&&!(it.hist&&it.hist[sel]));
   const cmap=new Map(),es=elecSet();CRIT.forEach(c=>{const k=K(c.code);if(!cmap.has(k))cmap.set(k,critOrig(c))});
   const critOf=it=>{const k=K(it.code),o=(cmap.get(k)||[]).slice();if(es.has(k)&&!o.includes('elec'))o.push('elec');return o};
@@ -192,7 +222,7 @@ function renderHist(){
     const obs=(it.obs||[]).join(' · ');
     return `<tr><td class="sbox s-${S.s}" title="${SLAB[S.s]}${S.ub?' · ubic. '+esc(S.ub):''}${S.live?'':' (stock de la carga de parada)'}"><span class="sdot s-${S.s}"></span>${sk}</td>
       <td class="code">${esc(it.code)}${occ?` <a href="#" data-plano="${occ[0]}" title="Ver en el despiece">⌖</a>`:''}</td><td class="code">${esc(it.sap||'')}</td>
-      <td>${esc(it.desc)}<div class="grp">${esc(it.grp||'')}</div></td><td>${it.CR&&it.CR.length?`<span class="mk des" style="text-decoration:none;background:var(--crit)">★</span> <small>${esc(it.CR.map(o=>ORIG_LAB[o]).join(' · '))}</small>`:''}</td><td class="c">${esc(it.pos||'')}</td><td class="c">${fmtQ(it.qty)}</td><td>${esc(it.per||'')}</td>${cells}<td class="c nx">${it.req>0?`<b title="Unidades que propone KHS">${fmtQ(it.req)}</b>`:it.kn?'<span class="mk des" style="text-decoration:none" title="KHS no lo tiene en su lista">no está</span>':''}</td><td class="obs" title="${esc(obs)}">${esc(obs.length>140?obs.slice(0,140)+'…':obs)}</td></tr>`}).join('');
+      <td>${esc(it.desc)}<div class="grp">${esc(it.grp||'')}</div></td><td>${it.CR&&it.CR.length?`<span class="mk des" style="text-decoration:none;background:var(--crit)">★</span> <small>${esc(it.CR.map(o=>ORIG_LAB[o]).join(' · '))}</small>`:''}</td><td class="c">${esc(it.pos||'')}</td><td class="c">${fmtQ(it.qty)}</td><td class="n">${priceTxt(priceOf(it.code,it),1)}</td><td>${esc(it.per||'')}</td>${cells}<td class="c nx">${it.req>0?`<b title="Unidades que propone KHS">${fmtQ(it.req)}</b>`:it.kn?'<span class="mk des" style="text-decoration:none" title="KHS no lo tiene en su lista">no está</span>':''}</td><td class="obs" title="${esc(obs)}">${esc(obs.length>140?obs.slice(0,140)+'…':obs)}</td></tr>`}).join('');
   const opt=stops.map((s,i)=>`<option value="${esc(s)}" ${s===sel?'selected':''}>${esc(s)}${s===nx?' ★ próxima':i<ni?' · realizada':' · futura'}</option>`).join('');
   view.innerHTML=`<div class="ptc">
     <div class="ptbar"><b style="font-size:16px">Parada técnica · ${esc(M.short||M.name)}</b>
@@ -208,10 +238,10 @@ function renderHist(){
       <button class="ptcard k-none ${f.pend?'on':''}" data-card="pend"><b>${sc.part+sc.none}</b><span>a pedir (parcial + sin stock)</span></button>
     </div>
     <div class="ptbar" style="margin-top:12px"><input type="search" id="ptQ" placeholder="Buscar código, descripción, nota…" value="${esc(f.q)}"><label><input type="checkbox" id="ptAll" ${f.all?'checked':''}> Ver también piezas sin marca en esta parada</label>
-      ${(f.cls||f.stk||f.pend||f.gap||f.crit)?'<button class="ptb ghost" id="ptClr">Quitar filtros</button>':''}<span class="sp"></span><span class="ptmeta">${rows.length} piezas · ${meta.at?'Plan cargado '+esc(fmtD(meta.at))+(meta.file?' ('+esc(meta.file)+')':''):''}</span></div>
+      ${(f.cls||f.stk||f.pend||f.gap||f.crit)?'<button class="ptb ghost" id="ptClr">Quitar filtros</button>':''}<span class="sp"></span><span class="ptmeta" title="Suma de precio × necesario de las piezas con X, A o P en esta parada">Importe estimado: <b>${eur(impTot)}</b>${impSin?' (+ '+impSin+' sin precio)':''}</span><span class="ptmeta">${rows.length} piezas · ${meta.at?'Plan cargado '+esc(fmtD(meta.at))+(meta.file?' ('+esc(meta.file)+')':''):''}</span></div>
     <div class="ptleg">${['X','A','P','R','D'].map(m=>`<span><span class="mk ${mcls(m)}">${m}</span> ${esc(mtitle(m))}</span>`).join('')}<span>Stock: <span class="sdot s-ok"></span>suficiente <span class="sdot s-part"></span>parcial <span class="sdot s-none"></span>sin stock <span class="sdot s-nosap"></span>sin dato (stock/necesario)</span></div>
   </div>
-  <div class="ptc" style="padding:0"><div class="ptwrap"><table class="ptt"><thead><tr><th>Stock / nec.</th><th>Código</th><th>SAP</th><th>Descripción</th><th>Crítico</th><th class="c">Pos.</th><th class="c">Cant.</th><th>Periodo</th>${th}<th class="c nx" title="Propuesta de KHS (proveedor): unidades o «no está»">KHS<small>${esc(KH)}</small></th><th>Observaciones</th></tr></thead><tbody>${body||`<tr><td colspan="${10+stops.length}" class="ptempty">Ninguna pieza con estos filtros.</td></tr>`}</tbody></table></div></div>`;
+  <div class="ptc" style="padding:0"><div class="ptwrap"><table class="ptt"><thead><tr><th>Stock / nec.</th><th>Código</th><th>SAP</th><th>Descripción</th><th>Crítico</th><th class="c">Pos.</th><th class="c">Cant.</th><th class="n" title="Precio por unidad: medio de SAP (PrMedioVar) o de catálogo KHS Connect">Precio ud.</th><th>Periodo</th>${th}<th class="c nx" title="Propuesta de KHS (proveedor): unidades o «no está»">KHS<small>${esc(KH)}</small></th><th>Observaciones</th></tr></thead><tbody>${body||`<tr><td colspan="${11+stops.length}" class="ptempty">Ninguna pieza con estos filtros.</td></tr>`}</tbody></table></div></div>`;
   bindTop();
 }
 function bindTop(){
@@ -261,10 +291,10 @@ function exportX(onlyView){
   let aoa;
   if(onlyView){
     const rows=all.filter(it=>it.hist&&it.hist[sel]&&(!PT.f.cls||mcls(it.hist[sel])===PT.f.cls)&&(!PT.f.stk||it.S.s===PT.f.stk)&&(!PT.f.pend||(['part','none'].includes(it.S.s)&&['chg','alm','pre'].includes(mcls(it.hist[sel])))));
-    aoa=[['Código','SAP','Descripción','Crítico','Grupo','Pos.','Cant.','Marca '+sel,'Stock','Necesario','Estado stock','Ubicación','KHS','Observaciones']].concat(rows.map(it=>[it.code,it.sap||'',it.desc,(it.CR||[]).map(o=>ORIG_LAB[o]).join(' · '),it.grp||'',it.pos||'',it.qty==null?'':it.qty,it.hist[sel],it.S.st==null?'':it.S.st,it.S.need,SLAB[it.S.s],it.S.ub||'',it.req>0?it.req:(it.kn?'no está':''),(it.obs||[]).join(' · ')]));
+    aoa=[['Código','SAP','Descripción','Crítico','Grupo','Pos.','Cant.','Precio ud. (€)','Fuente precio','Marca '+sel,'Stock','Necesario','Estado stock','Ubicación','KHS','Observaciones']].concat(rows.map(it=>[it.code,it.sap||'',it.desc,(it.CR||[]).map(o=>ORIG_LAB[o]).join(' · '),it.grp||'',it.pos||'',it.qty==null?'':it.qty,pxv(priceOf(it.code,it)),pxs(priceOf(it.code,it)),it.hist[sel],it.S.st==null?'':it.S.st,it.S.need,SLAB[it.S.s],it.S.ub||'',it.req>0?it.req:(it.kn?'no está':''),(it.obs||[]).join(' · ')]));
   }else{
     aoa=[['Código','SAP','Descripción','Grupo','Pos.','Cant.','Periodo']].concat([]);
-    aoa=[['Código','SAP','Descripción','Grupo','Pos.','Cant.','Periodo'].concat(stops,['KHS','Observaciones'])].concat(all.map(it=>[it.code,it.sap||'',it.desc,it.grp||'',it.pos||'',it.qty==null?'':it.qty,it.per||''].concat(stops.map(s=>(it.hist&&it.hist[s])||''),[it.req>0?it.req:(it.kn?'No está':''),(it.obs||[]).join(' · ')])));
+    aoa=[['Código','SAP','Descripción','Grupo','Pos.','Cant.','Periodo'].concat(stops,['KHS','Observaciones','Precio ud. (€)','Fuente precio'])].concat(all.map(it=>[it.code,it.sap||'',it.desc,it.grp||'',it.pos||'',it.qty==null?'':it.qty,it.per||''].concat(stops.map(s=>(it.hist&&it.hist[s])||''),[it.req>0?it.req:(it.kn?'No está':''),(it.obs||[]).join(' · '),pxv(priceOf(it.code,it)),pxs(priceOf(it.code,it))])));
   }
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(aoa),onlyView?('Parada '+sel).slice(0,31):'Plan de parada');
   XLSX.writeFile(wb,(onlyView?'parada_'+sel+'_':'plan_parada_')+(M.short||M.id).replace(/\W+/g,'_')+'.xlsx');
@@ -330,11 +360,23 @@ function parseMaster(rows){
   if(hr<0)return null;
   const h=rows[hr].map(c=>S(c).toLowerCase());
   const iM=h.indexOf('material'),iSt=h.indexOf('stock real'),iPP=h.indexOf('punto pedido'),iUb=h.findIndex(x=>x.startsWith('ubic'));
+  let iPr=h.findIndex(x=>x.replace(/\s/g,'')==='prmediovar');if(iPr<0)iPr=h.findIndex(x=>/precio\s*medio/.test(x));
   const alias=h.map((x,i)=>(/^n.?fb$/.test(x)||x.includes('material antiguo'))?i:-1).filter(i=>i>=0);
   const mat={},byc={};
-  rows.slice(hr+1).forEach(r=>{const m=S(r[iM]);if(!m)return;mat[m]=[nnum(r[iSt]),iUb>=0?S(r[iUb]):'',iPP>=0?nnum(r[iPP]):null];
+  rows.slice(hr+1).forEach(r=>{const m=S(r[iM]);if(!m)return;{const pr=iPr>=0?nnum(r[iPr]):null;mat[m]=[nnum(r[iSt]),iUb>=0?S(r[iUb]):'',iPP>=0?nnum(r[iPP]):null,pr>0?pr:null]};
     alias.forEach(i=>{const c=K(r[i]);if(c&&!byc[c])byc[c]=m})});
-  return {mat,byc};
+  return {mat,byc,hasPrice:iPr>=0};
+}
+// Excel de precios de KHS Connect: columnas «Código» y «Precio» (vacío o texto = precio a petición)
+function parsePrices(rows){
+  let hr=-1,ic=-1,ip=-1,iq=-1;
+  for(let i=0;i<Math.min(rows.length,8);i++){const h=(rows[i]||[]).map(c=>S(c).toLowerCase());
+    const c=h.findIndex(x=>/^(c.digo|codigo|code|n.?\s*pieza|n.mero de pieza|referencia)/.test(x)),p=h.findIndex(x=>/^precio(\s*(khs|unidad|unitario|ud\.?|por unidad))?(\s*\(?€\)?)?$/.test(x));
+    if(c>=0&&p>=0&&!h.includes('material')){hr=i;ic=c;ip=p;iq=h.findIndex(x=>/^(fecha|consultado)/.test(x));break}}
+  if(hr<0)return null;
+  const kp={};let n=0,wp=0;
+  rows.slice(hr+1).forEach(r=>{const c=K(r[ic]);if(!c)return;const raw=r[ip],v=typeof raw==='number'?raw:nnum(S(raw).replace(/[^\d,.\-]/g,'').replace(/\./g,'').replace(',','.'));n++;if(v>0)wp++;kp[c]=[v>0?v:null,iq>=0?S(r[iq]):'']});
+  return n?{kp,n,wp}:null;
 }
 function sapOf(code,master){
   const c=K(code);if(!c)return '';
@@ -358,24 +400,25 @@ async function readFiles(files){
   const box=modal.querySelector('#ptPrev');box.innerHTML='Leyendo…';
   try{
     if(!window.XLSX)throw new Error('No se pudo cargar el lector de Excel. Recarga la página.');
-    const U=PT.up;U.libro=null;U.master=null;U.cands=[];U.names=[];
+    const U=PT.up;U.libro=null;U.master=null;U.kp=null;U.kpn=0;U.kpw=0;U.cands=[];U.names=[];
     for(const f of files){
       const buf=await f.arrayBuffer();const wb=XLSX.read(buf,{type:'array'});U.names.push(f.name);
       for(const n of wb.SheetNames){
         const rows=XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,defval:null,raw:true});
         if(!U.master){const m=parseMaster(rows);if(m){U.master=m;continue}}
+        {const pp=parsePrices(rows);if(pp){U.kp=Object.assign(U.kp||{},pp.kp);U.kpn+=pp.n;U.kpw+=pp.wp;continue}}
         const p=parseLibro(rows,n);if(p){p.file=f.name;U.cands.push(p)}
       }
     }
     U.cands.sort((a,b)=>(/libro|analisis|operaci/i.test(b.sheet)-/libro|analisis|operaci/i.test(a.sheet))||b.items.length-a.items.length);
     U.libro=U.cands[0]||null;
-    if(!U.libro&&!U.master)throw new Error('No he encontrado ni columnas de paradas (2026, 26M…) ni una hoja «Lista materiales».');
+    if(!U.libro&&!U.master&&!U.kp)throw new Error('No he encontrado ni columnas de paradas (2026, 26M…), ni una hoja «Lista materiales», ni una hoja de precios (columnas Código y Precio).');
     preview();
   }catch(e){box.innerHTML=`<div style="color:var(--crit-ink)">${esc(e.message||e)}</div>`}
 }
 function build(){
   const U=PT.up,d=doc(),old=d&&d.items?d.items:{};
-  const res={stops:[],items:{},changes:[],added:0,removed:0,upd:0,next:d&&d.next||null,khs:(d&&d.khs)||'',mat:Object.assign({},(d&&d.mat)||{}),skip:(d&&d.skip)||[]};
+  const res={stops:[],items:{},changes:[],added:0,removed:0,upd:0,next:d&&d.next||null,khs:(d&&d.khs)||'',mat:Object.assign({},(d&&d.mat)||{}),skip:(d&&d.skip)||[],kp:Object.assign({},(d&&d.kp)||{},U.kp||{})};
   if(U.master){const mm=U.master;res.mat={};CODEIDX.forEach((_,k)=>{const sp=mm.byc[k]||mm.byc[k.replace(/^0+/,'')];if(sp&&mm.mat[sp])res.mat[k]=[sp].concat(mm.mat[sp])})}
   const m=U.master;
   const fill=it=>{ if(m){const s=it.sap||sapOf(it.code,m);if(s&&m.mat[s]){it.sap=s;it.st=m.mat[s]}}else if(!it.sap){const s=sapOf(it.code,null);if(s)it.sap=s} return it};
@@ -413,7 +456,7 @@ function preview(){
   box.innerHTML=`
    ${L?`<div style="margin-bottom:8px"><b>Libro:</b> ${U.cands.length>1?`<select id="ptSheet">${U.cands.map((c,i)=>`<option value="${i}" ${c===L?'selected':''}>${esc(c.file)} · ${esc(c.sheet)} (${c.items.length} piezas)</option>`).join('')}</select>`:esc(L.file)+' · hoja «'+esc(L.sheet)+'»'}
      <div class="ptmeta">Columna de código: «${esc(L.codeHdr)}» · paradas detectadas: ${L.stops.map(esc).join(', ')} · ${L.items.length} piezas con marcas</div></div>`:'<div class="ptmeta" style="margin-bottom:8px">Sin libro: solo se actualizará el stock y los SAP del plan actual.</div>'}
-   ${U.master?`<div class="ptmeta" style="margin-bottom:8px">Lista de materiales leída (${Object.keys(U.master.mat).length} materiales) · piezas con SAP: <b>${withSap}</b> de ${tot}</div>`:''}
+   ${U.master?`<div class="ptmeta" style="margin-bottom:8px">Lista de materiales leída (${Object.keys(U.master.mat).length} materiales) · piezas con SAP: <b>${withSap}</b> de ${tot}${U.master.hasPrice?' · con precio SAP (PrMedioVar): <b>'+Object.values(U.master.mat).filter(x=>x[3]>0).length+'</b> materiales':' · <span style="color:var(--crit-ink)">no he encontrado la columna PrMedioVar</span>'}</div>`:''}${U.kp?`<div class="ptmeta" style="margin-bottom:8px">Precios de KHS Connect leídos: <b>${U.kpn}</b> códigos (${U.kpw} con precio, ${U.kpn-U.kpw} «a petición»)</div>`:''}
    ${L&&d?`<div style="margin:8px 0"><label><input type="radio" name="ptm" value="merge" ${U.mode==='merge'?'checked':''}> Añadir y actualizar (conserva lo que no venga en el Excel)</label><br><label><input type="radio" name="ptm" value="replace" ${U.mode==='replace'?'checked':''}> Sustituir todo el plan por este Excel</label></div>`:''}
    <div class="ptcards" style="margin:8px 0"><div class="ptcard"><b>${R.added}</b><span>piezas nuevas</span></div><div class="ptcard"><b>${R.changes.length}</b><span>marcas que cambian</span></div><div class="ptcard"><b>${R.upd}</b><span>piezas actualizadas</span></div>${U.mode==='replace'?`<div class="ptcard"><b>${R.removed}</b><span>piezas que desaparecen</span></div>`:''}</div>
    ${R.changes.length?`<div class="ptdiff">${R.changes.slice(0,60).map(c=>`<div><b>${esc(c[0])}</b> · ${esc(c[1])}: ${c[2]?`<span class="mk ${mcls(c[2])}">${esc(c[2])}</span>`:'<i>sin marca</i>'} → ${c[3]?`<span class="mk ${mcls(c[3])}">${esc(c[3])}</span>`:'<i>sin marca</i>'}</div>`).join('')}${R.changes.length>60?`<div class="ptmeta">… y ${R.changes.length-60} más</div>`:''}</div>`:''}
@@ -424,7 +467,7 @@ function preview(){
 }
 async function save(){
   const U=PT.up,R=U.res,btn=modal.querySelector('#ptGo');btn.disabled=true;btn.textContent='Guardando…';
-  const out={stops:R.stops,next:R.next,khs:R.khs||'',skip:R.skip||[],mat:R.mat||{},items:R.items,meta:{at:new Date().toISOString(),by:(ME&&ME.id)||'',file:(U.names||[]).join(', ')}};
+  const out={stops:R.stops,next:R.next,khs:R.khs||'',skip:R.skip||[],mat:R.mat||{},kp:R.kp||{},items:R.items,meta:{at:new Date().toISOString(),by:(ME&&ME.id)||'',file:(U.names||[]).join(', ')}};
   try{
     PT.busy=true;
     await DB.doc('shared/pt'+(M.suffix||'')).set(out);
@@ -499,12 +542,13 @@ function critOfNode(n,isA,es){
   return {cnt:orig.length?1:0,orig,is:orig.length>0};
 }
 PTX.cells=n=>{
-  if(n.kids.length)return '<td></td><td></td>';
+  const pc=`<td class="n">${priceTxt(nodePrice(n),1)}</td>`;
+  if(n.kids.length)return '<td></td><td></td>'+pc;
   const d=doc(),it=d&&ptItemFor(n);
   if(!it){const h=n.hours?`<span title="Duración según la lista de KHS (no hay libro de operaciones para esta pieza)">${esc(Number(n.hours).toLocaleString('es-ES'))} h <small>(KHS)</small></span>`:'<span class="ptmeta">—</span>';
-    return `<td class="n">${h}</td><td><span class="ptmeta">sin registro</span></td>`}
+    return `<td class="n">${h}</td><td><span class="ptmeta">sin registro</span></td>${pc}`}
   const lc=lastChange(it,d),due=dueMap().get(it.id);
-  return `<td class="n" title="${esc(it.per||'')}">${fmtPer(it.per)}</td><td>${lc?`<b title="Última parada con X">${esc(lc.s)}</b>`:'<span class="ptmeta">sin registro</span>'}${due?` <span class="mk alm" style="font-family:inherit" title="${esc(due.why)}">toca</span>`:''}</td>`;
+  return `<td class="n" title="${esc(it.per||'')}">${fmtPer(it.per)}</td><td>${lc?`<b title="Última parada con X">${esc(lc.s)}</b>`:'<span class="ptmeta">sin registro</span>'}${due?` <span class="mk alm" style="font-family:inherit" title="${esc(due.why)}">toca</span>`:''}</td>${pc}`;
 };
 function persist(k,extra){
   const e=psEff()[k];
@@ -612,12 +656,14 @@ function renderPlan(){
   ents.sort((a,b)=>((a.e.path||'')+'|'+String(a.e.pos).padStart(6,'0')).localeCompare((b.e.path||'')+'|'+String(b.e.pos).padStart(6,'0'),'es',{numeric:true}));
   // datos calculados por fila
   const R=ents.map(({k,e,n})=>{
-    const isA=e.k==='a'&&!!n;let S=null,counts=null,it=null,lc=null,hist='',khs='';
+    const isA=e.k==='a'&&!!n;let S=null,counts=null,it=null,lc=null,hist='',khs='',px=null;
     if(n&&!isA){const ci=codeInfo(n.code,n.qty>0?n.qty:1,L,n.pos);S=ci.S;it=ci.it||ptItemFor(n);hist=histMini(it,stops,nx);
       if(it){lc=d?lastChange(it,d):null;khs=it.req>0?`<b>${fmtQ(it.req)}</b>`:it.kn?'<span class="mk des" style="text-decoration:none">no está</span>':''}}
     else if(n){counts={ok:0,part:0,none:0,nosap:0};let withH=0;leafNodes(n).forEach(i=>{const c=N[i],ci=codeInfo(c.code,c.qty>0?c.qty:1,L,c.pos);counts[ci.S.s]++;if(ci.it&&nx&&ci.it.hist&&ci.it.hist[nx])withH++});hist=withH?`<span class="ptmeta">${withH} pz. con marca en ${esc(nx)}</span>`:''}
+    if(n)px=nodePrice(n);
+    const q=e.qty>0?e.qty:1,imp=px&&px.v!=null?px.v*q:null;
     const cr=n?critOfNode(n,isA,es):{is:false,orig:[],cnt:0};
-    return {k,e,n,isA,S,counts,it,lc,hist,khs,cr,per:it&&it.per?it.per:(n&&n.hours?String(n.hours):'')};
+    return {k,e,n,isA,S,counts,it,lc,hist,khs,px,imp,cr,per:it&&it.per?it.per:(n&&n.hours?String(n.hours):'')};
   });
   // filtros
   const nq=v=>norm(v||'');
@@ -632,12 +678,14 @@ function renderPlan(){
     if(F.mk&&(e.m||'X')!==F.mk)return false;
     if(F.src&&(F.src==='auto')!==!!e.auto)return false;
     if(F.crit){if(F.crit==='yes'&&!r.cr.is)return false;if(F.crit==='no'&&r.cr.is)return false;if(['parada','manual','elec','otro'].includes(F.crit)&&!r.cr.orig.includes(F.crit))return false}
+    if(F.pr&&(F.pr==='yes')!==(r.imp!=null))return false;
     if(F.stk){if(r.S){if(r.S.s!==F.stk)return false}else if(!(r.counts&&r.counts[F.stk]>0))return false}
     return true});
   const anyF=Object.values(F).some(v=>v);
   // estadísticas sobre las piezas únicas cubiertas
   const cov=[];N.forEach(n=>{if(n.l>=2&&!n.kids.length&&I.cov[n.id]!=null)cov.push(n)});
   const sc={ok:0,part:0,none:0,nosap:0};let ncr=0;cov.forEach(n=>{sc[codeInfo(n.code,n.qty>0?n.qty:1,L,n.pos).S.s]++;if(critOfNode(n,false,es).is)ncr++});
+  const impAll=R.reduce((a,r)=>a+(r.imp||0),0),nSinPr=R.filter(r=>r.imp==null).length;
   const nA=R.filter(r=>r.isA).length,nAuto=R.filter(r=>r.e.auto).length,nRej=Object.keys(psRej()).length;
   const act=(k,v)=>F[k]===v?' on':'';
   const card=(v,l,c,key,val)=>`<button type="button" class="ptcard k-${c||''}${key?act(key,val):(anyF?'':' on')}" data-pcard="${key||'all'}:${val||''}"><b>${v}</b><span>${l}</span></button>`;
@@ -650,13 +698,13 @@ function renderPlan(){
     const stk=S?`<span class="sbox s-${S.s}" title="${SLAB[S.s]}${S.ub?' · ubic. '+esc(S.ub):''}"><span class="sdot s-${S.s}"></span>${S.s==='nosap'?'—':fmtQ(S.st)+' / '+fmtQ(S.need)}</span>`:(counts?dotsFor(counts):'');
     let sub='';
     if(isA&&open){
-      sub=`<tr class="sublist"><td colspan="13"><table class="mini2">${leafNodes(n).map(i=>{const c=N[i],ci=codeInfo(c.code,c.qty>0?c.qty:1,L,c.pos),S2=ci.S,it2=ci.it||ptItemFor(c),lc2=it2&&d?lastChange(it2,d):null;
-        return `<tr><td class="code">${esc(c.code)}</td><td>${esc(c.desc)}</td><td class="c">${fmtQ(c.qty)}</td><td class="sbox s-${S2.s}"><span class="sdot s-${S2.s}"></span>${S2.s==='nosap'?'—':fmtQ(S2.st)+' / '+fmtQ(S2.need)}</td><td>${it2?fmtPer(it2.per):''}</td><td>${lc2?esc(lc2.s):''}</td><td>${histMini(it2,stops,nx)}</td></tr>`}).join('')}</table></td></tr>`}
+      sub=`<tr class="sublist"><td colspan="15"><table class="mini2">${leafNodes(n).map(i=>{const c=N[i],ci=codeInfo(c.code,c.qty>0?c.qty:1,L,c.pos),S2=ci.S,it2=ci.it||ptItemFor(c),lc2=it2&&d?lastChange(it2,d):null;
+        return `<tr><td class="code">${esc(c.code)}</td><td>${esc(c.desc)}</td><td class="c">${fmtQ(c.qty)}</td><td class="n">${priceTxt(priceOf(c.code,it2),1)}</td><td class="sbox s-${S2.s}"><span class="sdot s-${S2.s}"></span>${S2.s==='nosap'?'—':fmtQ(S2.st)+' / '+fmtQ(S2.need)}</td><td>${it2?fmtPer(it2.per):''}</td><td>${lc2?esc(lc2.s):''}</td><td>${histMini(it2,stops,nx)}</td></tr>`}).join('')}</table></td></tr>`}
     const mk=e.m||'X';
     const crit=r.cr.is?(isA?`<span class="mk des" style="text-decoration:none;background:var(--crit)" title="Repuestos críticos dentro del conjunto">★ ${r.cr.cnt}</span>`:`<span title="${esc(r.cr.orig.map(o=>ORIG_LAB[o]).join(' · '))}"><span class="mk des" style="text-decoration:none;background:var(--crit)">★</span> <small>${esc(r.cr.orig.map(o=>ORIG_LAB[o]).join(' · '))}</small></span>`):'';
     return `<tr class="${n?'':'orph'}"><td>${stk}</td><td class="code">${esc(e.code)}${n?` <a href="#" data-plano="${n.id}" title="Ver en el despiece">⌖</a>`:''}</td>
       <td>${isA?`<a href="#" data-ptog="${esc(k)}">${open?'▾':'▸'}</a> `:''}${e.auto?'<span class="mk alm" title="Sugerida por periodo de cambio" style="font-family:inherit">✨ sugerida</span> ':''}${esc(e.desc)}<div class="grp">${esc(e.path||'')}${n?'':' · (ya no figura en el despiece)'}</div>${e.auto?`<div class="grp" style="color:var(--blue)">${esc(e.why||'')}</div>`:''}</td>
-      <td>${isA?`Conjunto · ${n?leafNodes(n).length:'?'} pz`:'Pieza'}</td><td class="c">${fmtQ(e.qty)}</td>
+      <td>${isA?`Conjunto · ${n?leafNodes(n).length:'?'} pz`:'Pieza'}</td><td class="c">${fmtQ(e.qty)}</td><td class="n">${priceTxt(r.px,1)}</td><td class="n">${r.imp!=null?`<b>${eur(r.imp)}</b>`:'<span class="ptmeta">—</span>'}</td>
       <td class="c">${isA?'':fmtPer(r.per)}${!r.it&&r.per&&!isA?' <small class="ptmeta">(KHS)</small>':''}</td><td>${isA?'':(lc?`<b>${esc(lc.s)}</b>`:'<span class="ptmeta">sin registro</span>')}</td><td>${crit}</td>
       <td>${r.hist}</td><td class="c">${r.khs}</td>
       <td class="c ${CAN?'ed':''}" data-pm="${esc(k)}"><span class="mk ${mcls(mk)}" title="${esc(mtitle(mk))}">${esc(mk)}</span></td>
@@ -668,11 +716,11 @@ function renderPlan(){
       ${CAN&&d?`<button class="ptb ghost" id="ptImp" title="Añade al plan las piezas marcadas en la próxima parada en el libro de operaciones">Traer del libro (${esc(nx||'—')})</button>`:''}
       ${CAN&&nAuto?`<button class="ptb acc" id="ptAccAll">Confirmar las ${nAuto} sugeridas</button>`:''}${CAN&&nRej?`<button class="ptb ghost" id="ptRejClr">Recuperar ${nRej} descartadas</button>`:''}<button class="ptb ghost" id="ptExpP">Exportar lista (Excel)</button>${CAN&&ents.length?'<button class="ptb ghost" id="ptClrAll">Vaciar plan</button>':''}
       <button class="ptb acc" id="ptGoSel">＋ Seleccionar en el plano</button></div>
-    <div class="ptcards">${card(ents.length,'elementos en el plan','chg')}${card(nAuto,'sugeridos por periodo','alm','src','auto')}${card(nA,'subconjuntos completos','alm','typ','a')}${card(cov.length,'piezas incluidas')}${card(ncr,'piezas críticas','none','crit','yes')}${card(sc.ok,'con stock suficiente','ok','stk','ok')}${card(sc.part,'stock parcial','part','stk','part')}${card(sc.none,'sin stock','none','stk','none')}${card(sc.nosap,'sin SAP / sin dato','nosap','stk','nosap')}</div>
+    <div class="ptcards">${card(ents.length,'elementos en el plan','chg')}${card(nAuto,'sugeridos por periodo','alm','src','auto')}${card(nA,'subconjuntos completos','alm','typ','a')}${card(cov.length,'piezas incluidas')}${card(ncr,'piezas críticas','none','crit','yes')}<div class="ptcard k-chg" style="cursor:default" title="Suma de precio × cantidad de los elementos con precio"><b>${eur(impAll)}</b><span>importe estimado (solo piezas con precio)</span></div>${card(nSinPr,'elementos sin precio','part','pr','no')}${card(sc.ok,'con stock suficiente','ok','stk','ok')}${card(sc.part,'stock parcial','part','stk','part')}${card(sc.none,'sin stock','none','stk','none')}${card(sc.nosap,'sin SAP / sin dato','nosap','stk','nosap')}</div>
     <div class="ptleg"><span>Pulsa una tarjeta para filtrar · usa la fila de filtros bajo los títulos (se aplican según escribes) · ${rows.length} de ${R.length} elementos${anyF?' <a href="#" id="ptFclr">Quitar filtros</a>':''}</span></div></div>
-    <div class="ptc" style="padding:0"><div class="ptwrap"><table class="ptt"><thead><tr><th>Stock / nec.</th><th>Código</th><th>Descripción</th><th>Tipo</th><th class="c">Cant.</th><th class="c" title="Periodo de cambio según el libro de operaciones">Periodo (h)</th><th title="Última parada en la que se cambió (X)">Último cambio</th><th>Crítico</th><th>Historial</th><th class="c" title="Propuesta KHS">KHS</th><th class="c">Marca</th><th>Nota</th><th></th></tr>
-      <tr class="flt"><th>${fs('stk',[['ok','Suficiente'],['part','Parcial'],['none','Sin stock'],['nosap','Sin dato']])}</th><th>${fi('code','código…')}</th><th>${fi('desc','descripción / ruta…')} ${fs('src',[['auto','✨ Sugeridas'],['conf','Confirmadas']])}</th><th>${fs('typ',[['a','Conjunto'],['p','Pieza']])}</th><th></th><th>${fi('per','h…')}</th><th>${fi('last','parada…')}</th><th>${fs('crit',[['yes','Críticos'],['no','No críticos'],['parada','Parada'],['manual','Manual'],['elec','⚡ Eléctrico'],['otro','Otro']])}</th><th></th><th></th><th>${fs('mk',[['X','X'],['A','A'],['P','P'],['R','R'],['V','V'],['C','C'],['D','D']])}</th><th>${fi('note','nota…')}</th><th></th></tr></thead>
-    <tbody>${body||`<tr><td colspan="13" class="ptempty">${R.length?'Ningún elemento con estos filtros.':'Todavía no has elegido nada para la próxima parada.<br>Pulsa «Seleccionar en el plano», abre un subconjunto y añade piezas o el conjunto completo'+(CAN&&d?', o usa «Traer del libro» para partir de las marcas del Excel':'')+'.'}</td></tr>`}</tbody></table></div></div>`;
+    <div class="ptc" style="padding:0"><div class="ptwrap"><table class="ptt"><thead><tr><th>Stock / nec.</th><th>Código</th><th>Descripción</th><th>Tipo</th><th class="c">Cant.</th><th class="n" title="Precio unitario (medio SAP o catálogo KHS Connect); en conjuntos, suma de sus piezas con precio">Precio ud.</th><th class="n" title="Precio × cantidad">Importe</th><th class="c" title="Periodo de cambio según el libro de operaciones">Periodo (h)</th><th title="Última parada en la que se cambió (X)">Último cambio</th><th>Crítico</th><th>Historial</th><th class="c" title="Propuesta KHS">KHS</th><th class="c">Marca</th><th>Nota</th><th></th></tr>
+      <tr class="flt"><th>${fs('stk',[['ok','Suficiente'],['part','Parcial'],['none','Sin stock'],['nosap','Sin dato']])}</th><th>${fi('code','código…')}</th><th>${fi('desc','descripción / ruta…')} ${fs('src',[['auto','✨ Sugeridas'],['conf','Confirmadas']])}</th><th>${fs('typ',[['a','Conjunto'],['p','Pieza']])}</th><th></th><th></th><th>${fs('pr',[['yes','Con precio'],['no','Sin precio']])}</th><th>${fi('per','h…')}</th><th>${fi('last','parada…')}</th><th>${fs('crit',[['yes','Críticos'],['no','No críticos'],['parada','Parada'],['manual','Manual'],['elec','⚡ Eléctrico'],['otro','Otro']])}</th><th></th><th></th><th>${fs('mk',[['X','X'],['A','A'],['P','P'],['R','R'],['V','V'],['C','C'],['D','D']])}</th><th>${fi('note','nota…')}</th><th></th></tr></thead>
+    <tbody>${body||`<tr><td colspan="15" class="ptempty">${R.length?'Ningún elemento con estos filtros.':'Todavía no has elegido nada para la próxima parada.<br>Pulsa «Seleccionar en el plano», abre un subconjunto y añade piezas o el conjunto completo'+(CAN&&d?', o usa «Traer del libro» para partir de las marcas del Excel':'')+'.'}</td></tr>`}</tbody></table></div></div>`;
   if(fe){const el=view.querySelector(`[data-pf="${fe}"]`);if(el){el.focus();try{el.setSelectionRange(fp,fp)}catch(_){}}}
   const b=s=>view.querySelector(s);
   if(b('#ptGoSel'))b('#ptGoSel').onclick=()=>{PT.view='sel';try{localStorage.setItem('ptView','sel')}catch(_){}sync()};
@@ -692,10 +740,10 @@ function importLibro(){
 function exportPlan(rows){
   if(!window.XLSX){toast('No se pudo cargar el lector de Excel');return}
   const L=lookups(),d=doc();
-  const A=[['Subconjunto','Código','Descripción','Tipo','Cant.','Periodo (h)','Último cambio','Crítico','Marca','Origen','Stock','Necesario','Estado stock','Nota']].concat(rows.map(r=>{const e=r.e;return [e.path||'',e.code,e.desc,r.isA?'Conjunto':'Pieza',e.qty==null?'':e.qty,r.per||'',r.lc?r.lc.s:'',r.cr.is?(r.isA?r.cr.cnt+' críticas dentro':r.cr.orig.map(o=>ORIG_LAB[o]).join(' · ')):'',e.m||'X',e.auto?'Sugerida por periodo':'Confirmada',r.S&&r.S.st!=null?r.S.st:'',r.S?r.S.need:'',r.S?SLAB[r.S.s]:'',e.note||'']}));
-  const seen=new Set(),B=[['Conjunto elegido','Código','Descripción','Cant.','SAP','Stock','Necesario','Estado stock','Ubicación','Periodo (h)','Último cambio','Marca','Nota']],es=elecSet();
+  const A=[['Subconjunto','Código','Descripción','Tipo','Cant.','Precio ud. (€)','Importe (€)','Periodo (h)','Último cambio','Crítico','Marca','Origen','Stock','Necesario','Estado stock','Nota']].concat(rows.map(r=>{const e=r.e;return [e.path||'',e.code,e.desc,r.isA?'Conjunto':'Pieza',e.qty==null?'':e.qty,r.px&&r.px.v!=null?Math.round(r.px.v*100)/100:'',r.imp!=null?Math.round(r.imp*100)/100:'',r.per||'',r.lc?r.lc.s:'',r.cr.is?(r.isA?r.cr.cnt+' críticas dentro':r.cr.orig.map(o=>ORIG_LAB[o]).join(' · ')):'',e.m||'X',e.auto?'Sugerida por periodo':'Confirmada',r.S&&r.S.st!=null?r.S.st:'',r.S?r.S.need:'',r.S?SLAB[r.S.s]:'',e.note||'']}));
+  const seen=new Set(),B=[['Conjunto elegido','Código','Descripción','Cant.','SAP','Precio ud. (€)','Stock','Necesario','Estado stock','Ubicación','Periodo (h)','Último cambio','Marca','Nota']],es=elecSet();
   rows.forEach(r=>{const {e,n}=r;if(!n)return;leafNodes(n).forEach(i=>{const c=N[i];if(seen.has(i))return;seen.add(i);const ci=codeInfo(c.code,c.qty>0?c.qty:1,L,c.pos),S=ci.S,it=ci.it||ptItemFor(c),lc=it&&d?lastChange(it,d):null;
-    B.push([(e.path?e.path+' › ':'')+e.pos+' '+e.desc,c.code,c.desc,c.qty==null?'':c.qty,S.sap||'',S.st==null?'':S.st,S.need,SLAB[S.s],S.ub||'',it?it.per:'',lc?lc.s:'',e.m||'X',e.note||''])})});
+    B.push([(e.path?e.path+' › ':'')+e.pos+' '+e.desc,c.code,c.desc,c.qty==null?'':c.qty,S.sap||'',pxv(priceOf(c.code,it)),S.st==null?'':S.st,S.need,SLAB[S.s],S.ub||'',it?it.per:'',lc?lc.s:'',e.m||'X',e.note||''])})});
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(A),'Lista de la compra');XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(B),'Piezas incluidas');
   XLSX.writeFile(wb,'lista_parada_'+(M.short||M.id).replace(/\W+/g,'_')+'.xlsx');
 }
@@ -713,7 +761,7 @@ view.addEventListener('input',e=>{const f=e.target.closest('input[data-pf]');if(
 view.addEventListener('change',e=>{const sl=e.target.closest('select[data-pf]');if(sl){PT.pf[sl.dataset.pf]=sl.value;renderPlan();return}const i=e.target.closest('[data-pnote]');if(i)persist(i.dataset.pnote,{note:i.value});const c=e.target.closest('#ptAuto');if(c){PT.auto=c.checked;try{localStorage.setItem('ptAuto',PT.auto?'1':'0')}catch(_){}PS.I=null;drawSub();render()}});
 
 // ---------- protección: un fallo en el modo parada nunca deja la pantalla oscura ----------
-['cnt','cls','info','head','sub','cells'].forEach(k=>{const f=PTX[k];PTX[k]=function(){try{return f.apply(this,arguments)}catch(e){console.error('PTX.'+k,e);return k==='cnt'?0:(k==='cells'?'<td></td><td></td>':'')}}});
+['cnt','cls','info','head','sub','cells'].forEach(k=>{const f=PTX[k];PTX[k]=function(){try{return f.apply(this,arguments)}catch(e){console.error('PTX.'+k,e);return k==='cnt'?0:(k==='cells'?'<td></td><td></td><td></td>':'')}}});
 const _rn=renderNode;
 renderNode=function(){
   modal.classList.toggle('ptx',!!PTX.on);
