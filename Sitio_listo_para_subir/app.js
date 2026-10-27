@@ -261,7 +261,7 @@ function renderNode(){
   <div class="mb"><div class="pic${zoom?' zoom':''}" id="pic">${pic}</div>
   <div class="tbl"><div class="tt"><label><input type="checkbox" id="chFlat" ${flat?'checked':''}> Ver todos los niveles</label><span class="sum">${lv.length} piezas · ${nv} de desgaste${PTX.on?(PTX.cnt(n)?` · <b style="color:var(--blue)">🛠 ${PTX.cnt(n)} en la parada</b>`:''):(n.cc?` · <b style="color:var(--crit-ink)">★ ${n.cc} críticas</b>`:'')}</span>${PTX.on?PTX.head(n):''}</div>
   ${subCrit()}<div class="legend"><i style="background:var(--wear)"></i>Pieza de desgaste (V) con duración en horas<i style="background:var(--crit)"></i>Repuesto crítico<i style="background:var(--tag-e)"></i>E = pieza de repuesto<span style="margin-left:10px">✓ = KHS recomienda tener stock</span></div>
-  <table><thead><tr><th class="n">Pos.</th><th>Código</th><th>Descripción</th><th class="n">Uds</th><th>Tipo</th>${PTX.on?'':'<th class="n">Duración (h)</th>'}<th>Stock cliente</th>${PTX.on?'<th class="n" title="Periodo de cambio según el libro de operaciones">Periodo (h)</th><th title="Última parada en la que se cambió (X)">Último cambio</th>':''}</tr></thead><tbody>${body||'<tr><td colspan="7" class="nopic">Sin componentes</td></tr>'}</tbody></table></div></div>`;
+  <table><thead><tr><th class="n">Pos.</th><th>Código</th><th>Descripción</th><th class="n">Uds</th><th>Tipo</th>${PTX.on?'':'<th class="n">Duración (h)</th>'}<th>Stock cliente</th>${PTX.on?'<th class="n" title="Periodo de cambio según el libro de operaciones">Periodo (h)</th><th title="Última parada en la que se cambió (X)">Último cambio</th><th class="n" title="Precio unitario: medio SAP o catálogo KHS Connect. En conjuntos, suma de sus piezas con precio">Precio</th>':''}</tr></thead><tbody>${body||'<tr><td colspan="7" class="nopic">Sin componentes</td></tr>'}</tbody></table></div></div>`;
   loadImgs(modal,M);
   if(hlId!=null){const r=modal.querySelector(`[data-row="${hlId}"]`);if(r){r.classList.add('hl');setTimeout(()=>r.scrollIntoView({block:'center'}),30)}}
   else if(keepScroll){const t=modal.querySelector('.tbl');if(t)t.scrollTop=keepScroll}
@@ -309,7 +309,7 @@ function critOrig(c){
   const s=c.src||[],o=[];
   if(s.some(x=>/parada/i.test(x)))o.push('parada');
   if(s.some(x=>/manual/i.test(x)))o.push('manual');
-  if(c.elec||c.isElec)o.push('elec');
+  if(c.elec||c.isElec||s.some(x=>/el[eé]ctric/i.test(x)))o.push('elec');
   if(!o.length)o.push('otro');
   return o;
 }
@@ -335,14 +335,16 @@ function critModal(refresh){
     if(cf.edit===c.key)sapCell=`<input id="eSap" class="code" style="width:110px" value="${esc(c.sap)}" placeholder="Nº SAP"><br><button class="mini go" data-esave="${esc(c.key)}">Guardar</button> <button class="mini" data-ecancel>Cancelar</button>`;
     else sapCell=(c.sap?esc(c.sap)+(c.match==='Aproximada'?' <span class="gr" title="Coincidencia aproximada (Contiene)">~</span>':''):'<span class="gr">sin cruzar</span>');
     let act='';
-    if(CAN&&!c.elec){
+    const isL=(c.src||[]).some(x=>/Microsoft List/i.test(x));
+    if(isL)act=CAN?'<span class="gr" title="Este crítico se edita en el Microsoft List">en el List</span>':'';
+    else if(CAN&&!c.elec){
       if(cf.del===c.key)act=`<span class="gr">¿Quitar?</span> <button class="mini danger" data-dyes="${esc(c.key)}">Sí</button> <button class="mini" data-dno>No</button>`;
       else act=`<button class="mini" data-edit="${esc(c.key)}">SAP</button> <button class="mini danger" data-del="${esc(c.key)}">Quitar</button>`;
     }
     const stk=c.sap?(c.hasRow?(c.stock===0?'<span class="z">0</span>':fmtQ(c.stock)):'<span class="gr" title="Sin stock cargado para este SAP">—</span>'):'';
     const eln=(c.elec||c.isElec)&&c.epg?`<br><a data-epg2="${c.epg}" data-tag="${esc(c.etag||'')}" style="color:var(--crit-ink,#c92a2a);cursor:pointer;text-decoration:underline;font-size:12px">⚡ Ver en el esquema · pág. ${c.epg}</a>`:'';
-    return `<tr><td>${c.elec?'<span class="gr">Esquema eléctrico</span>':critLinks(c)}${eln}</td><td class="code">${esc(c.code)}</td><td>${esc(c.desc)}</td><td>${origBadges(c)}</td><td class="code">${sapCell}</td><td class="n stk" title="${c.pp!=null?'Punto de pedido: '+fmtQ(c.pp):''}">${stk}</td><td>${esc(c.ub)}</td><td class="n">${c.cq==null?'':fmtQ(c.cq)}</td>${CAN?`<td>${act}</td>`:''}</tr>`}).join('');
-  modal.innerHTML=`<div class="mh"><div><h2>★ Repuestos críticos · ${esc(M.name)}${EQUIPO?` (equipo ${esc(EQUIPO)})`:''}</h2><div class="crumb">${ALL.length} críticos (${nOr('parada')} según parada · ${nOr('manual')} según manual · ${nOr('elec')} eléctricos${nOr('otro')?' · '+nOr('otro')+' otros':''}) · ${conSap} con SAP · ${s0} con stock 0 · ${CRIT.filter(c=>c.occ.length).length} localizados en el despiece</div></div><button class="x" data-close aria-label="Cerrar">✕</button></div>
+    return `<tr><td>${c.elec?'<span class="gr">Esquema eléctrico</span>':critLinks(c)}${eln}</td><td class="code">${esc(c.code)}</td><td>${esc(c.desc)}${c.resp?` <span class="gr" title="Responsable">· ${esc(c.resp)}</span>`:''}${c.nota?`<div class="gr">${esc(c.nota)}</div>`:''}</td><td>${origBadges(c)}</td><td class="code">${sapCell}</td><td class="n stk" title="${c.pp!=null?'Punto de pedido: '+fmtQ(c.pp):''}">${stk}</td><td>${esc(c.ub)}</td><td class="n">${c.cq==null?'':fmtQ(c.cq)}</td>${CAN?`<td>${act}</td>`:''}</tr>`}).join('');
+  modal.innerHTML=`<div class="mh"><div><h2>★ Repuestos críticos · ${esc(M.name)}${EQUIPO?` (equipo ${esc(EQUIPO)})`:''}</h2><div class="crumb">${ALL.length} críticos (${nOr('parada')} según parada · ${nOr('manual')} según manual · ${nOr('elec')} eléctricos${nOr('otro')?' · '+nOr('otro')+' otros':''}) · ${conSap} con SAP · ${s0} con stock 0 · ${CRIT.filter(c=>c.occ.length).length} localizados en el despiece${(window.MAPA_CONFIG||{}).listUrl?` · <a href="${esc(window.MAPA_CONFIG.listUrl)}" target="_blank" rel="noopener">Editar en Microsoft List ↗</a>`:''}</div></div><button class="x" data-close aria-label="Cerrar">✕</button></div>
   <div class="fbar"><select id="cfSel" aria-label="Filtro"><option value="all">Todos</option><option value="o_parada">Origen: según parada (libro de operaciones)</option><option value="o_manual">Origen: según manual</option><option value="o_elec">Origen: ⚡ eléctricos (esquema)</option><option value="o_otro">Origen: otros</option><option value="sap">Con SAP</option><option value="nosap">Sin cruzar con SAP</option><option value="s0">Con SAP y stock 0</option><option value="nodesp">No figuran en el despiece</option></select><input id="cfQ" type="search" placeholder="Filtrar código, descripción o SAP…" value="${esc(cf.q)}"><button id="cfCsv">Descargar CSV</button>${CAN?'<button id="cfUp">Cargar Excel</button>':''}<span class="crumb">${list.length} filas · consumo = unidades consumidas en este equipo en los últimos 4 años</span></div>
   <div class="tbl" style="max-height:72vh"><table><thead><tr><th style="top:0">Subconjunto</th><th style="top:0">Código KHS</th><th style="top:0">Descripción</th><th style="top:0">Origen</th><th style="top:0">Nº SAP</th><th class="n" style="top:0">Stock</th><th style="top:0">Ubic.</th><th class="n" style="top:0">Consumo 4 años</th>${CAN?'<th style="top:0"></th>':''}</tr></thead><tbody>${rows||`<tr><td colspan="9" class="nopic">${ALL.length?'Ninguna fila con ese filtro.':'Todavía no hay repuestos críticos cargados. Usa «Cargar Excel» para subir la lista.'}</td></tr>`}</tbody></table></div>`;
   $('#cfSel').value=cf.sel;
