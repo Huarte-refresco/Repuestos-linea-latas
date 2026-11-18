@@ -11,7 +11,7 @@ const mcls=m=>{m=String(m||'').toUpperCase();if(!m)return '';const c=m[0];if(c==
 const mtitle=m=>{const f=MARKS.find(x=>x[0]===m);return f?f[1]:m};
 
 // ---------- estado ----------
-const PT={docs:{},sub:{},mode:'crit',view:'sel',open:{},ver:{},auto:true,pf:{},f:{stop:null,cls:'',stk:'',q:'',all:false,pend:false,gap:'',crit:false},up:null};
+const PT={gc:{},docs:{},sub:{},mode:'crit',view:'sel',open:{},ver:{},auto:true,pf:{},f:{stop:null,cls:'',stk:'',q:'',all:false,pend:false,gap:'',crit:false},up:null};
 try{if(localStorage.getItem('ptAuto')==='0')PT.auto=false}catch(e){}
 try{const v=localStorage.getItem('ptMode');if(v==='pt')PT.mode='pt';const w=localStorage.getItem('ptView');if(['sel','plan','hist'].includes(w))PT.view=w}catch(e){}
 const doc=()=>M&&PT.docs[M.id]||null;
@@ -92,6 +92,9 @@ table.ptt{border-collapse:separate;border-spacing:0;font-size:12.5px;width:100%}
 .ptt th.fut{background:var(--acc-soft)}
 .ptt td.nx{background:var(--acc-soft)}
 .ptt td.code{font-family:var(--mono);white-space:nowrap}
+.ptt tr.grph td{background:var(--head);border-top:2px solid var(--line);padding:7px 8px;font-size:13px;cursor:pointer}
+.ptt tr.grph:hover td{background:var(--head)}
+.ptt tr.grph a{text-decoration:none}
 .ptt td.grp{color:var(--mut);font-size:11.5px}
 .mk{display:inline-block;min-width:26px;padding:2px 5px;border-radius:6px;font:600 12px var(--mono);text-align:center}
 .mk.chg{background:#1c64c8;color:#fff}.mk.alm{background:#7048e8;color:#fff}.mk.pre{background:#e8590c;color:#fff}.mk.rev{background:#0b7285;color:#fff}.mk.des{background:#868e96;color:#fff;text-decoration:line-through}
@@ -264,7 +267,7 @@ view.addEventListener('click',e=>{
     else{f.stk=f.stk===k?'':k;f.pend=false;f.gap=''}
     render();return}
   const a=e.target.closest('[data-plano]');
-  if(a){e.preventDefault();try{openNode(+a.dataset.plano)}catch(_){}return}
+  if(a){e.preventDefault();try{const id=+a.dataset.plano,n=N[id];if(n&&n.parent>=0&&N[n.parent].l>=2)openNode(n.parent,id);else openNode(id)}catch(_){}return}
   const td=e.target.closest('td.ed[data-id]');
   if(td&&CAN){const r=td.getBoundingClientRect();showMenu(td.dataset.id,td.dataset.s,r.left,r.bottom+4)}
 });
@@ -653,7 +656,7 @@ function renderPlan(){
   const I=PSI(),sel=psEff(),d=doc(),stops=stopsOf(d),nx=d&&d.next&&stops.includes(d.next)?d.next:null;
   const L=lookups(),es=elecSet(),F=PT.pf;
   const ents=Object.entries(sel).map(([k,e])=>{const id=(PS.km[M.id]||{m:new Map()}).m.get(k);return {k,e,n:id!=null?N[id]:null}});
-  ents.sort((a,b)=>((a.e.path||'')+'|'+String(a.e.pos).padStart(6,'0')).localeCompare((b.e.path||'')+'|'+String(b.e.pos).padStart(6,'0'),'es',{numeric:true}));
+  ents.sort((a,b)=>{if(a.n&&b.n)return a.n.id-b.n.id;if(a.n)return -1;if(b.n)return 1;return ((a.e.path||'')+'|'+String(a.e.pos).padStart(6,'0')).localeCompare((b.e.path||'')+'|'+String(b.e.pos).padStart(6,'0'),'es',{numeric:true})});
   // datos calculados por fila
   const R=ents.map(({k,e,n})=>{
     const isA=e.k==='a'&&!!n;let S=null,counts=null,it=null,lc=null,hist='',khs='',px=null;
@@ -692,8 +695,18 @@ function renderPlan(){
   const opt=(arr,cur)=>arr.map(([v,t])=>`<option value="${esc(v)}" ${cur===v?'selected':''}>${esc(t)}</option>`).join('');
   const fi=(k,ph)=>`<input type="search" class="pf" data-pf="${k}" value="${esc(F[k]||'')}" placeholder="${ph}">`;
   const fs=(k,arr)=>`<select class="pf" data-pf="${k}">${opt([['','Todos']].concat(arr),F[k]||'')}</select>`;
+  // agrupación por subgrupo (el conjunto del que cuelgan en el despiece)
+  const gk=r=>r.n&&r.n.parent>=0?'n'+r.n.parent:'p'+(r.e.path||'');
+  const G=new Map();
+  rows.forEach(r=>{const k=gk(r);let g=G.get(k);if(!g){g={k,t:r.n&&r.n.parent>=0?pathTxt(r.n.parent):(r.e.path||'Sin subgrupo'),pid:r.n&&r.n.parent>=0&&N[r.n.parent].l>=2?r.n.parent:null,n:0,imp:0};G.set(k,g)}g.n++;if(r.imp!=null)g.imp+=r.imp});
+  const gcol=k=>!!PT.gc[M.id+'|'+k];
+  let lastG=null;
   const body=rows.map(r=>{
     const {k,e,n,isA,S,counts,lc}=r;
+    let gh='';const gKey=gk(r);
+    if(gKey!==lastG){lastG=gKey;const g=G.get(gKey),col=gcol(gKey);
+      gh=`<tr class="grph"><td colspan="15" data-pgrp="${esc(gKey)}"><a href="#">${col?'▸':'▾'}</a> <b>${esc(g.t)}</b> <span class="ptmeta">· ${g.n} elemento${g.n===1?'':'s'}${g.imp?' · '+eur(g.imp):''}</span>${g.pid!=null?` &nbsp; <a href="#" data-plano-sub="${g.pid}" title="Ver el plano de este subgrupo (y el grupo anterior)">⌖ plano</a>`:''}</td></tr>`}
+    if(gcol(gKey))return gh;
     const open=PT.open[k];
     const stk=S?`<span class="sbox s-${S.s}" title="${SLAB[S.s]}${S.ub?' · ubic. '+esc(S.ub):''}"><span class="sdot s-${S.s}"></span>${S.s==='nosap'?'—':fmtQ(S.st)+' / '+fmtQ(S.need)}</span>`:(counts?dotsFor(counts):'');
     let sub='';
@@ -702,7 +715,7 @@ function renderPlan(){
         return `<tr><td class="code">${esc(c.code)}</td><td>${esc(c.desc)}</td><td class="c">${fmtQ(c.qty)}</td><td class="n">${priceTxt(priceOf(c.code,it2),1)}</td><td class="sbox s-${S2.s}"><span class="sdot s-${S2.s}"></span>${S2.s==='nosap'?'—':fmtQ(S2.st)+' / '+fmtQ(S2.need)}</td><td>${it2?fmtPer(it2.per):''}</td><td>${lc2?esc(lc2.s):''}</td><td>${histMini(it2,stops,nx)}</td></tr>`}).join('')}</table></td></tr>`}
     const mk=e.m||'X';
     const crit=r.cr.is?(isA?`<span class="mk des" style="text-decoration:none;background:var(--crit)" title="Repuestos críticos dentro del conjunto">★ ${r.cr.cnt}</span>`:`<span title="${esc(r.cr.orig.map(o=>ORIG_LAB[o]).join(' · '))}"><span class="mk des" style="text-decoration:none;background:var(--crit)">★</span> <small>${esc(r.cr.orig.map(o=>ORIG_LAB[o]).join(' · '))}</small></span>`):'';
-    return `<tr class="${n?'':'orph'}"><td>${stk}</td><td class="code">${esc(e.code)}${n?` <a href="#" data-plano="${n.id}" title="Ver en el despiece">⌖</a>`:''}</td>
+    return gh+`<tr class="${n?'':'orph'}"><td>${stk}</td><td class="code">${esc(e.code)}${n?` <a href="#" data-plano="${n.id}" title="Ver en el despiece">⌖</a>`:''}</td>
       <td>${isA?`<a href="#" data-ptog="${esc(k)}">${open?'▾':'▸'}</a> `:''}${e.auto?'<span class="mk alm" title="Sugerida por periodo de cambio" style="font-family:inherit">✨ sugerida</span> ':''}${esc(e.desc)}<div class="grp">${esc(e.path||'')}${n?'':' · (ya no figura en el despiece)'}</div>${e.auto?`<div class="grp" style="color:var(--blue)">${esc(e.why||'')}</div>`:''}</td>
       <td>${isA?`Conjunto · ${n?leafNodes(n).length:'?'} pz`:'Pieza'}</td><td class="c">${fmtQ(e.qty)}</td><td class="n">${priceTxt(r.px,1)}</td><td class="n">${r.imp!=null?`<b>${eur(r.imp)}</b>`:'<span class="ptmeta">—</span>'}</td>
       <td class="c">${isA?'':fmtPer(r.per)}${!r.it&&r.per&&!isA?' <small class="ptmeta">(KHS)</small>':''}</td><td>${isA?'':(lc?`<b>${esc(lc.s)}</b>`:'<span class="ptmeta">sin registro</span>')}</td><td>${crit}</td>
@@ -714,7 +727,7 @@ function renderPlan(){
   const fp=fe?document.activeElement.selectionStart:0;
   view.innerHTML=`<div class="ptc"><div class="ptbar"><b style="font-size:16px">Plan de la parada · ${esc(M.short||M.name)}</b>${nx?`<span class="ptmeta">Próxima parada: <b>${esc(nx)}</b></span>`:''}<label class="ptmeta" title="Piezas cuyo periodo de cambio vence en la próxima parada, según el último cambio registrado"><input type="checkbox" id="ptAuto" ${PT.auto?'checked':''}> ✨ Sugerir por periodo de cambio</label><span class="sp"></span>
       ${CAN&&d?`<button class="ptb ghost" id="ptImp" title="Añade al plan las piezas marcadas en la próxima parada en el libro de operaciones">Traer del libro (${esc(nx||'—')})</button>`:''}
-      ${CAN&&nAuto?`<button class="ptb acc" id="ptAccAll">Confirmar las ${nAuto} sugeridas</button>`:''}${CAN&&nRej?`<button class="ptb ghost" id="ptRejClr">Recuperar ${nRej} descartadas</button>`:''}<button class="ptb ghost" id="ptExpP">Exportar lista (Excel)</button>${CAN&&ents.length?'<button class="ptb ghost" id="ptClrAll">Vaciar plan</button>':''}
+      ${CAN&&nAuto?`<button class="ptb acc" id="ptAccAll">Confirmar las ${nAuto} sugeridas</button>`:''}${CAN&&nRej?`<button class="ptb ghost" id="ptRejClr">Recuperar ${nRej} descartadas</button>`:''}<button class="ptb ghost" id="ptGcol" title="Plegar o desplegar todos los subgrupos">Plegar / desplegar subgrupos</button><button class="ptb ghost" id="ptExpP">Exportar lista (Excel)</button>${CAN&&ents.length?'<button class="ptb ghost" id="ptClrAll">Vaciar plan</button>':''}
       <button class="ptb acc" id="ptGoSel">＋ Seleccionar en el plano</button></div>
     <div class="ptcards">${card(ents.length,'elementos en el plan','chg')}${card(nAuto,'sugeridos por periodo','alm','src','auto')}${card(nA,'subconjuntos completos','alm','typ','a')}${card(cov.length,'piezas incluidas')}${card(ncr,'piezas críticas','none','crit','yes')}<div class="ptcard k-chg" style="cursor:default" title="Suma de precio × cantidad de los elementos con precio"><b>${eur(impAll)}</b><span>importe estimado (solo piezas con precio)</span></div>${card(nSinPr,'elementos sin precio','part','pr','no')}${card(sc.ok,'con stock suficiente','ok','stk','ok')}${card(sc.part,'stock parcial','part','stk','part')}${card(sc.none,'sin stock','none','stk','none')}${card(sc.nosap,'sin SAP / sin dato','nosap','stk','nosap')}</div>
     <div class="ptleg"><span>Pulsa una tarjeta para filtrar · usa la fila de filtros bajo los títulos (se aplican según escribes) · ${rows.length} de ${R.length} elementos${anyF?' <a href="#" id="ptFclr">Quitar filtros</a>':''}</span></div></div>
@@ -726,6 +739,7 @@ function renderPlan(){
   if(b('#ptGoSel'))b('#ptGoSel').onclick=()=>{PT.view='sel';try{localStorage.setItem('ptView','sel')}catch(_){}sync()};
   if(b('#ptImp'))b('#ptImp').onclick=importLibro;
   if(b('#ptExpP'))b('#ptExpP').onclick=()=>exportPlan(rows);
+  if(b('#ptGcol'))b('#ptGcol').onclick=()=>{const any=[...G.keys()].some(k=>!gcol(k));[...G.keys()].forEach(k=>{PT.gc[M.id+'|'+k]=any});renderPlan()};
   const ca=b('#ptClrAll');if(ca)ca.onclick=()=>{if(ca.dataset.sure){psPatch(Object.fromEntries(Object.keys(sel).filter(k=>!sel[k].auto).map(k=>[k,null])));Object.entries(sel).forEach(([k,en])=>{if(en.auto)psRemove(k)});toast('Plan vaciado')}else{ca.dataset.sure=1;ca.textContent='¿Seguro? Pulsa otra vez';setTimeout(()=>{if(ca.isConnected){delete ca.dataset.sure;ca.textContent='Vaciar plan'}},4000)}};
 }
 function importLibro(){
@@ -748,6 +762,8 @@ function exportPlan(rows){
   XLSX.writeFile(wb,'lista_parada_'+(M.short||M.id).replace(/\W+/g,'_')+'.xlsx');
 }
 view.addEventListener('click',e=>{
+  const psb=e.target.closest('[data-plano-sub]');if(psb){e.preventDefault();try{openNode(+psb.dataset.planoSub)}catch(_){}return}
+  const pgr=e.target.closest('[data-pgrp]');if(pgr&&PT.view==='plan'){e.preventDefault();const k=M.id+'|'+pgr.dataset.pgrp;PT.gc[k]=!PT.gc[k];renderPlan();return}
   const pc=e.target.closest('[data-pcard]');if(pc&&PT.view==='plan'){const [k,v]=pc.dataset.pcard.split(':');if(k==='all'||PT.pf[k]===v)PT.pf={};else PT.pf=Object.assign({},k==='stk'||k==='crit'||k==='typ'||k==='src'?{}:{},{[k]:v});renderPlan();return}
   if(e.target.closest('#ptFclr')){e.preventDefault();PT.pf={};renderPlan();return}
   const t=e.target.closest('[data-ptog]');if(t){e.preventDefault();PT.open[t.dataset.ptog]=!PT.open[t.dataset.ptog];renderPlan();return}
