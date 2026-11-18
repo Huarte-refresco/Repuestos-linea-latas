@@ -39,7 +39,7 @@ let DB=null,USER=null,ME=null,CAN=false,LIVE=false;
 let CRITMAP={},CRITMETA={},STOCKROWS={},STOCKMETA={};
 let CRIT=[];
 let critOpen=false;
-let dragging=false,modalKind='',cur=null,flat=false,pageIdx=0,hlId=null,zoom=false;
+let dragging=false,modalKind='',cur=null,flat=false,pageIdx=0,hlId=null,zoom=false,planSel=0;
 let cf={sel:'all',q:'',edit:null,del:null};
 function rebuildCrit(){
   CRIT=Object.entries(CRITMAP).filter(([,v])=>v&&v.code).map(([key,v])=>{
@@ -200,7 +200,7 @@ $('#res').onclick=e=>{const it=e.target.closest('.it');if(!it||!it.dataset.id)re
 
 // ---------- Panel superpuesto ----------
 const ov=$('#ov'),modal=$('#modal');
-function openNode(id,hl,keepFlat){modalKind='node';cur=id;hlId=hl==null?null:hl;pageIdx=0;zoom=false;if(!keepFlat)flat=false;ov.classList.add('on');renderNode()}
+function openNode(id,hl,keepFlat){modalKind='node';cur=id;hlId=hl==null?null:hl;pageIdx=0;planSel=0;zoom=false;if(!keepFlat)flat=false;ov.classList.add('on');renderNode()}
 function close(){ov.classList.remove('on');modalKind=''}
 function refreshModal(){if(!ov.classList.contains('on'))return;if(modalKind==='node')renderNode();else if(modalKind==='crit')critModal(true);else if(modalKind==='list'&&lastList)listModal(...lastList)}
 ov.addEventListener('click',e=>{if(e.target===ov)close()});
@@ -243,6 +243,13 @@ function subCrit(){
       rows+=`<tr><td><a class="lnk" data-gohl="${p},${o}">${esc(N[p].pos+' '+N[p].desc)}</a></td><td class="code">${esc(c.code)}</td><td>${esc(c.desc)}</td><td class="code">${c.sap?esc(c.sap):'<span class="gr">sin cruzar</span>'}</td><td class="n">${stk}</td><td>${esc(c.ub)}</td></tr>`})});
   return `<details class="cdet"${critOpen?' open':''}><summary>★ Piezas críticas en este subnivel (${ids.length})</summary><div style="padding:4px 12px"><button class="mini" data-dlsub>⬇ Descargar lista (CSV)</button></div><div style="max-height:240px;overflow:auto"><table><thead><tr><th>Dónde está</th><th>Código KHS</th><th>Descripción</th><th>Nº SAP</th><th class="n">Stock</th><th>Ubic.</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
 }
+// ---------- Planos: subgrupo + grupo anterior, con la pieza marcada ----------
+(function(){const s=document.createElement('style');s.textContent='.plmark{margin:6px;padding:8px 10px;border:2px solid #e8590c;background:#fff4e6;color:#1b2130;border-radius:8px;font-size:13px;line-height:1.35}.plmark b{color:#c2410c;font-size:15px}.plmark small{display:block;color:#626b7d;margin-top:2px}.pgs.pl button{white-space:normal;text-align:left}';document.head.appendChild(s)})();
+const okPg=id=>N[id].pages.filter(p=>M.pix[p]!=null);
+// planes a mostrar: el más cercano con plano (este subgrupo o el superior) y el grupo anterior a ése
+function planChain(id){const ch=[];let c=id;while(c!=null&&c>=0&&N[c].l>=2&&ch.length<2){if(okPg(c).length)ch.push(c);c=N[c].parent}return ch}
+// nodo que lleva el número a buscar en el plano de pn: la pieza marcada, o el conjunto que la contiene
+function markIn(pn,hl){let a=hl;while(a!=null&&a>=0){if(N[a].parent===pn)return a;a=N[a].parent}return null}
 function renderNode(){
   const n=N[cur];const pth=path(cur);
   const crumb=['<a data-go="'+ROOT+'">'+esc(M.short)+'</a>'].concat(pth.map((i,k)=>k===pth.length-1?esc(N[i].pos+' '+N[i].desc):`<a data-go="${i}">${esc(N[i].pos+' '+N[i].desc)}</a>`)).join(' › ');
@@ -254,8 +261,18 @@ function renderNode(){
   const lv=leaves(cur),nv=lv.filter(i=>N[i].mark==='V').length;
   const pgs=n.pages.length;
   let pic;
-  if(!pgs||M.pix[n.pages[Math.min(pageIdx,pgs-1)]]==null)pic='<div class="nopic">Este elemento no tiene plano propio en el PDF.<br>Consulta el plano del subconjunto superior.</div>';
-  else pic=(pgs>1?`<div class="pgs"><span>Planos:</span>${n.pages.map((p,i)=>`<button class="${i===pageIdx?'on':''}" data-pg="${i}">pág. ${p}</button>`).join('')}</div>`:'')+imgTag(M,n.pages[Math.min(pageIdx,pgs-1)],'Despiece');
+  const ch=planChain(cur);if(planSel>=ch.length)planSel=0;
+  if(!ch.length)pic='<div class="nopic">Este elemento no tiene plano propio en el PDF.<br>Consulta el plano del subconjunto superior.</div>';
+  else{
+    const pn=ch[planSel],pp=okPg(pn),pi=Math.min(pageIdx,pp.length-1);
+    const tabs=(ch.length>1||pn!==cur)?`<div class="pgs pl"><span>Plano:</span>${ch.map((id,i)=>`<button class="${i===planSel?'on':''}" data-plsel="${i}">${i===0?(id===cur?'Este subgrupo':'Subgrupo'):'Grupo anterior'}: ${esc(N[id].pos+' '+N[id].desc)}</button>`).join('')}</div>`:'';
+    let mk='';
+    if(hlId!=null&&hlId>=0){const hn=N[hlId],mi=markIn(pn,hlId);
+      if(mi!=null){const mn=N[mi];
+        mk=mi===hlId?`<div class="plmark">📍 Pieza marcada: <b>nº ${esc(hn.pos)}</b> · ${esc(hn.code)} · ${esc(hn.desc)}<small>Búscala en este plano por el número ${esc(hn.pos)}. Está resaltada en la lista.</small></div>`
+          :`<div class="plmark">📍 La pieza <b>${esc(hn.pos)} ${esc(hn.desc)}</b> está dentro del conjunto <b>nº ${esc(mn.pos)}</b> · ${esc(mn.desc)}<small>Busca el número ${esc(mn.pos)} en este plano. Para ver la pieza, abre el plano del subgrupo.</small></div>`}}
+    pic=tabs+mk+(pp.length>1?`<div class="pgs"><span>Páginas:</span>${pp.map((p,i)=>`<button class="${i===pi?'on':''}" data-pg="${i}">pág. ${p}</button>`).join('')}</div>`:'')+imgTag(M,pp[pi],'Despiece');
+  }
   const keepScroll=modal.querySelector('.tbl')?modal.querySelector('.tbl').scrollTop:0;
   modal.innerHTML=`<div class="mh"><div><h2>${esc(n.pos)} · ${esc(n.desc)}</h2><div class="crumb">${crumb} · <span class="code">${esc(n.code)}</span></div></div><button class="x" data-close aria-label="Cerrar">✕</button></div>
   <div class="mb"><div class="pic${zoom?' zoom':''}" id="pic">${pic}</div>
@@ -275,6 +292,7 @@ modal.addEventListener('click',e=>{
   const gh=t.closest('[data-gohl]');if(gh){const [a,b]=gh.dataset.gohl.split(',').map(Number);return openNode(a,b)}
   const g=t.closest('[data-go]');if(g)return openNode(+g.dataset.go);
   const o=t.closest('[data-open]');if(o)return openNode(+o.dataset.open);
+  const pls=t.closest('[data-plsel]');if(pls){planSel=+pls.dataset.plsel;pageIdx=0;return renderNode()}
   const pg=t.closest('[data-pg]');if(pg){pageIdx=+pg.dataset.pg;return renderNode()}
   if(t.id==='chFlat'){flat=t.checked;return openNode(cur,null,true)}
   if(t.tagName==='IMG'&&t.closest('#pic')){zoom=!zoom;$('#pic').classList.toggle('zoom',zoom)}
