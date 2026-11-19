@@ -1,5 +1,5 @@
-/* PDF de la parada para los técnicos: una hoja por subgrupo (plano con los números a cambiar rodeados en rojo + tabla debajo).
-   Al pinchar el plano se salta a una página con el plano ampliado. Los círculos salen de num_<máquina>.json (OCR de los planos). */
+/* PDF de la parada para los técnicos: hoja del subgrupo (plano con los números a cambiar rodeados en rojo + tabla debajo),
+   seguida de una hoja con el plano del grupo anterior y el subgrupo rodeado; se alternan. Los círculos salen de num_<máquina>.json (OCR de los planos). */
 (function(){
 if(typeof M==='undefined'||typeof planChain!=='function')return;
 const JSPDF='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
@@ -78,6 +78,23 @@ async function make(rowsIn,opt){
     });
     [...byPage.entries()].sort((a,b)=>a[0]-b[0]).forEach(([pg,items])=>sheets.push({g,page:pg,items,title:pathTxt(g.owner)||'Subgrupo'}));
   });
+  // 2b) tras la hoja(s) de cada subgrupo, una hoja con el plano del grupo anterior (el de más arriba) y el subgrupo rodeado
+  const seq=[];
+  const lastOf=new Map();
+  sheets.forEach((s,i)=>{if(s.g.owner!=null)lastOf.set(s.g.owner,i)});
+  sheets.forEach((s,i)=>{
+    seq.push(s);
+    if(s.g.owner!=null&&lastOf.get(s.g.owner)===i){
+      const o=s.g.owner,ch=planChain(o),ix=ch.indexOf(o),up=ix>=0?ch[ix+1]:null;
+      if(up!=null){
+        const mk=markIn(up,o),num=mk!=null?String(N[mk].pos):null,pgs=okPg(up);
+        let pg=null,hits=[];
+        if(num!=null)for(const p of pgs){const h=hitsOf(ocr&&ocr[String(p)],num);if(h.length){pg=p;hits=h;break}}
+        const lost=pg==null;if(lost){pg=pgs[0]}
+        seq.push({kind:'grp',owner:up,sub:o,num,page:pg,hits,lost,title:'Grupo anterior: '+(pathTxt(up)||''),subTitle:pathTxt(o)||''});
+      }
+    }
+  });
   // 3) PDF
   const doc=new J({unit:'mm',format:'a4',orientation:'portrait'});
   const PW=210,PH=297,MX=10;
@@ -93,11 +110,25 @@ async function make(rowsIn,opt){
     return tl.length>1?24:20;
   };
   const sheetPage=[],links=[];let first=true;
-  for(let i=0;i<sheets.length;i++){
-    const s=sheets[i];toast('Preparando el PDF… hoja '+(i+1)+' de '+sheets.length,60000);
+  for(let i=0;i<seq.length;i++){
+    const s=seq[i];toast('Preparando el PDF… hoja '+(i+1)+' de '+seq.length,60000);
     if(!first)doc.addPage('a4','portrait');first=false;
     sheetPage.push(doc.getNumberOfPages());
     let y=head(s.title);
+    if(s.kind==='grp'){
+      let img=null;try{img=await planImage(s.page,s.hits)}catch(e){console.warn(e)}
+      if(img){
+        const w=PW-2*MX,h=Math.min(w*img.h/img.w,200);const w2=h*img.w/img.h;
+        const x=MX+(w-w2)/2;
+        doc.addImage(img.url,'JPEG',x,y,w2,h,undefined,'FAST');doc.setDrawColor(180);doc.rect(x,y,w2,h);
+        y+=h+5;
+      }else{doc.setFontSize(9);doc.setTextColor(150,0,0);doc.text('No se pudo cargar el plano',MX,y+5);y+=10}
+      doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(27,33,48);
+      const t='Plano pág. '+s.page+' · Subgrupo de la hoja anterior: '+s.subTitle+(s.num!=null?' (nº '+s.num+(s.hits.length?', rodeado en rojo':'')+')':'');
+      doc.text(doc.splitTextToSize(t,PW-2*MX),MX,y);
+      if(s.lost&&s.num!=null){doc.setTextColor(150,0,0);doc.text('Nº '+s.num+' no localizado automáticamente en este plano: buscarlo a mano.',MX,y+10)}
+      continue;
+    }
     if(s.page!=null){
       const hits=[];s.items.forEach(it=>it.hits.forEach(h=>hits.push(h)));
       let img=null;try{img=await planImage(s.page,hits)}catch(e){console.warn(e)}
@@ -106,9 +137,8 @@ async function make(rowsIn,opt){
         const x=MX+(w-w2)/2;
         doc.addImage(img.url,'JPEG',x,y,w2,h,undefined,'FAST');
         doc.setDrawColor(180);doc.rect(x,y,w2,h);
-        links.push({sheet:i,x,y,w:w2,h,img,page:s.page,hits});
         doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(98,107,125);
-        doc.text('Plano pág. '+s.page+' · pinche el plano para verlo ampliado'+(hits.length?' · números a cambiar rodeados en rojo':''),MX,y+h+4);
+        doc.text('Plano pág. '+s.page+' · '+(hits.length?' · números a cambiar rodeados en rojo':''),MX,y+h+4);
         y+=h+8;
       }else{doc.setFontSize(9);doc.setTextColor(150,0,0);doc.text('No se pudo cargar el plano',MX,y+5);y+=10}
     }
@@ -130,27 +160,12 @@ async function make(rowsIn,opt){
     });
   }
   const sheetEnd=doc.getNumberOfPages();
-  // 4) planos ampliados (a pantalla completa, apaisados) + enlaces
-  const zoomPg=[];
-  for(let k=0;k<links.length;k++){
-    const L=links[k];
-    doc.addPage('a4','landscape');zoomPg.push(doc.getNumberOfPages());
-    const W=297,H=210,m=6;
-    doc.setFont('helvetica','bold');doc.setFontSize(10);doc.setTextColor(27,33,48);
-    doc.text(T(sheets[L.sheet].title)+' · plano pág. '+L.page,m,m+3);
-    doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(0,70,170);
-    const back='← Volver a la hoja';doc.text(back,W-m,m+3,{align:'right'});
-    doc.link(W-m-40,m-1,40,7,{pageNumber:sheetPage[L.sheet]});
-    const aw=W-2*m,ah=H-2*m-8;let w=aw,h=w*L.img.h/L.img.w;if(h>ah){h=ah;w=h*L.img.w/L.img.h}
-    doc.addImage(L.img.url,'JPEG',m+(aw-w)/2,m+8,w,h,undefined,'FAST');
-  }
-  links.forEach((L,k)=>{doc.setPage(sheetPage[L.sheet]);doc.link(L.x,L.y,L.w,L.h,{pageNumber:zoomPg[k]})});
   // 5) numeración de hojas
   const tot=sheetEnd;
   for(let p=1;p<=tot;p++){doc.setPage(p);doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(98,107,125);doc.text('Hoja '+p+' de '+tot,PW-MX,PH-6,{align:'right'})}
   const nm='parada_'+T(M.short||M.id).replace(/\W+/g,'_')+(stop?'_'+stop.replace(/\W+/g,'_'):'')+'.pdf';
   doc.save(nm);
-  toast('PDF generado: '+rows.length+' elementos en '+sheets.length+' hoja'+(sheets.length===1?'':'s')+(notFound?' · '+notFound+' números no localizados automáticamente (se avisa en la nota)':'')+(nAuto?' · '+nAuto+' sugeridas sin confirmar no incluidas':'')+(ocr?'':' · sin detección de números (falta num_'+M.id+'.json)'),9000);
+  toast('PDF generado: '+rows.length+' elementos en '+seq.length+' hoja'+(seq.length===1?'':'s')+(notFound?' · '+notFound+' números no localizados automáticamente (se avisa en la nota)':'')+(nAuto?' · '+nAuto+' sugeridas sin confirmar no incluidas':'')+(ocr?'':' · sin detección de números (falta num_'+M.id+'.json)'),9000);
 }
 window.PDFP={make};
 })();
