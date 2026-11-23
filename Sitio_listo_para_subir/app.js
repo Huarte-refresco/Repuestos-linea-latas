@@ -262,6 +262,37 @@ function fmNote(){
   if(fm==='wear')return '<div class="fmn">🔧 Piezas de desgaste ordenadas por subconjunto: <span class="orb or-m">manual KHS</span> <span class="orb or-p">selección de parada</span> <span class="orb or-b">manual + parada</span></div>';
   return '';
 }
+// ---------- Ficha de pieza (al pinchar): stock y último cambio ----------
+let detId=null;
+function detHtml(n){
+  const crit=n.crit.map(i=>CRIT[i]);
+  let ch=null;try{ch=typeof PTX.chg==='function'?PTX.chg(n):null}catch(e){}
+  const wear=n.mark==='V'||!!ch;let o='';
+  crit.forEach(c=>{
+    let alm;
+    if(!c.sap)alm='<b class="z">Sin Nº SAP</b>: no se puede saber si está en el almacén. Añade el SAP en la lista de críticos.';
+    else if(!c.hasRow)alm=`SAP ${esc(c.sap)} · <b class="z">no aparece en la lista de stock</b> (no hay existencias o el stock no está cargado)`;
+    else alm=c.stock>0?`<b style="color:#2b8a3e">Sí, hay en el almacén</b> · stock <b>${fmtQ(c.stock)}</b>`:`<b class="z">En la lista de stock pero con 0 unidades</b>`;
+    o+=`<div><b>★ Crítica</b> ${origBadges(c)}</div><div>Almacén: ${alm}${c.hasRow&&c.ub?' · ubicación '+esc(c.ub):''}${c.hasRow&&c.pp!=null&&c.pp!==''?' · punto de pedido '+fmtQ(c.pp):''}${c.hasRow&&c.cq!=null&&c.cq!==''?' · consumo 4 años '+fmtQ(c.cq):''}</div>`});
+  if(wear){
+    if(ch){const l=ch.last;
+      o+=`<div><b>🔧 Desgaste</b>${n.mark==='V'?' (manual KHS'+(n.hours?' · '+n.hours.toLocaleString('es-ES')+' h':'')+')':''} · Último cambio: ${l?`<b>parada ${esc(l.s)} (${l.y})</b>`:'<b>sin registro en el libro de operaciones</b>'}${ch.per?' · periodo '+esc(ch.per):''}</div>`;
+      if(ch.list.length>1)o+=`<div>Cambios registrados: ${ch.list.map(esc).join(', ')}</div>`;
+      if(ch.due)o+=`<div>⏰ ${esc(ch.due)}</div>`;
+    }else o+=`<div><b>🔧 Desgaste</b> según manual KHS${n.hours?' ('+n.hours.toLocaleString('es-ES')+' h)':''} · no consta en el libro de operaciones, así que no hay año de último cambio.</div>`;
+  }
+  if(!o)o='<div>Esta pieza no es crítica ni de desgaste: no hay stock ni historial de cambios que mostrar.</div>';
+  return `<div><b>${esc(n.pos)} · ${esc(n.code)}</b> · ${esc(n.desc)}</div>`+o;
+}
+function toggleDet(id,tr){
+  const old=modal.querySelector('tr.det');const same=old&&+old.dataset.for===id;
+  if(old)old.remove();if(same){detId=null;return}
+  detId=id;try{if(PTX.watch)PTX.watch()}catch(e){}
+  const d=document.createElement('tr');d.className='det';d.dataset.for=id;
+  d.innerHTML=`<td colspan="${PTX.on?9:7}"><div class="detc">${detHtml(N[id])}</div></td>`;tr.after(d);
+}
+function refreshDet(){if(detId==null)return;const d=modal.querySelector('tr.det');if(!d)return;const c=d.querySelector('.detc');if(c)c.innerHTML=detHtml(N[detId])}
+(function(){const s=document.createElement('style');s.textContent='tr[data-row]:not(.asm){cursor:pointer}.det td{background:#fffbea!important;color:#1b2130;padding:8px 12px!important;box-shadow:inset 5px 0 0 #f08c00}.detc{font-size:12.5px;line-height:1.55}.detc div{margin:2px 0}';document.head.appendChild(s)})();
 function csvQ(v){return '"'+String(v==null?'':v).replace(/"/g,'""')+'"'}
 function dlCsv(name,h,rows){saveFile(name,'\ufeff'+[h].concat(rows).map(r=>r.map(csvQ).join(';')).join('\n'))}
 function csvSub(){
@@ -312,6 +343,7 @@ function planChain(id){const ch=[];let c=id;while(c!=null&&c>=0&&N[c].l>=2&&ch.l
 // nodo que lleva el número a buscar en el plano de pn: la pieza marcada, o el conjunto que la contiene
 function markIn(pn,hl){let a=hl;while(a!=null&&a>=0){if(N[a].parent===pn)return a;a=N[a].parent}return null}
 function renderNode(){
+  detId=null;
   const n=N[cur];const pth=path(cur);
   const crumb=['<a data-go="'+ROOT+'">'+esc(M.short)+'</a>'].concat(pth.map((i,k)=>k===pth.length-1?esc(N[i].pos+' '+N[i].desc):`<a data-go="${i}">${esc(N[i].pos+' '+N[i].desc)}</a>`)).join(' › ');
   let body='';
@@ -364,6 +396,7 @@ modal.addEventListener('click',e=>{
   const pls=t.closest('[data-plsel]');if(pls){planSel=+pls.dataset.plsel;pageIdx=0;return renderNode()}
   const pg=t.closest('[data-pg]');if(pg){pageIdx=+pg.dataset.pg;return renderNode()}
   if(t.id==='chFlat'){flat=t.checked;return openNode(cur,null,true)}
+  const lr=t.closest('tr[data-row]');if(lr&&!lr.classList.contains('asm')&&!t.closest('button,a,input,.lnk,.tag'))return toggleDet(+lr.dataset.row,lr);
   if(t.tagName==='IMG'&&t.closest('#pic')){zoom=!zoom;$('#pic').classList.toggle('zoom',zoom)}
 });
 
