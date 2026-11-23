@@ -200,12 +200,13 @@ $('#res').onclick=e=>{const it=e.target.closest('.it');if(!it||!it.dataset.id)re
 
 // ---------- Panel superpuesto ----------
 const ov=$('#ov'),modal=$('#modal');
-let navH=[],navSkip=false,treeShow=false;const treeOpen=new Set();
+let navH=[],navSkip=false,treeShow=false,fm='all';const rexp=new Map();const treeOpen=new Set();
 function openNode(id,hl,keepFlat){
   const was=ov.classList.contains('on')&&modalKind==='node'&&cur!=null;
   if(!was)navH=[];
   else if(!navSkip&&id!==cur){navH.push({cur,hl:hlId});if(navH.length>60)navH.shift()}
   navSkip=false;
+  if(id!==cur)rexp.clear();
   modalKind='node';cur=id;hlId=hl==null?null:hl;pageIdx=0;planSel=0;zoom=false;if(!keepFlat)flat=false;ov.classList.add('on');renderNode()}
 function navBack(){const h=navH.pop();if(!h)return;navSkip=true;openNode(h.cur,h.hl)}
 function close(){ov.classList.remove('on');modalKind=''}
@@ -219,13 +220,47 @@ function actBtn(n){
   if(!CAN)return '';
   return n.crit.length?`<button class="mini danger" data-unmark="${n.id}">Quitar de críticos</button>`:`<button class="mini" data-mark="${n.id}">☆ Marcar como crítica</button>`;
 }
-function row(n,ind){
+function row(n,ind,badge,xcls){
+  badge=badge||'';xcls=xcls||'';
   const isA=n.kids.length>0;
   const cr=n.crit.map(i=>CRIT[i]);
   const ci=PTX.on?PTX.info(n):critInfo(n)+actBtn(n);
   if(isA){const c=leaves(n.id).length;
-    return `<tr style="--sc:${colKid(n.id)}" class="asm${PTX.on?PTX.cls(n):(cr.length?' crit':'')}" data-open="${n.id}" data-row="${n.id}"><td class="n">${n.pos}</td><td class="code">${esc(n.code)}</td><td style="padding-left:${8+ind*14}px">▸ ${esc(n.desc)}${ci}</td><td class="n">${fmtQ(n.qty)}</td><td></td>${PTX.on?'':'<td class="n"></td>'}<td><span class="open">abrir · ${c} pz${n.pages.length?' · p.'+n.pages[0]:''}</span>${cb2(n)}</td>${PTX.on?PTX.cells(n):''}</tr>`}
-  return `<tr data-row="${n.id}" class="${(n.mark==='V'?'v ':'')+(PTX.on?PTX.cls(n):(cr.length?'crit':''))}"><td class="n">${n.pos}</td><td class="code">${esc(n.code)}</td><td style="padding-left:${8+ind*14}px">${esc(n.desc)}${ci}</td><td class="n">${fmtQ(n.qty)}</td><td>${n.mark?`<span class="tag ${n.mark}">${n.mark}</span>`:''}</td>${PTX.on?'':`<td class="n">${n.hours?n.hours.toLocaleString('es-ES'):''}</td>`}<td style="text-align:center">${n.obs==='J'?'✓':''}</td>${PTX.on?PTX.cells(n):''}</tr>`;
+    return `<tr style="--sc:${colKid(n.id)}" class="asm${PTX.on?PTX.cls(n):(cr.length?' crit':'')}" data-open="${n.id}" data-row="${n.id}"><td class="n">${n.pos}</td><td class="code">${esc(n.code)}</td><td style="padding-left:${8+ind*14}px">▸ ${esc(n.desc)}${ci}</td><td class="n">${fmtQ(n.qty)}</td><td></td>${PTX.on?'':'<td class="n"></td>'}<td><span class="open">abrir · ${c} pz${n.pages.length?' · p.'+n.pages[0]:''}</span>${cb2(n)}<span class="rb"><button class="mini${rexp.get(n.id)==='crit'?' on':''}" data-rowf="crit,${n.id}" title="Abrir/cerrar solo las críticas de este conjunto">★</button><button class="mini${rexp.get(n.id)==='wear'?' on':''}" data-rowf="wear,${n.id}" title="Abrir/cerrar las piezas de desgaste de este conjunto">🔧</button></span></td>${PTX.on?PTX.cells(n):''}</tr>`}
+  return `<tr data-row="${n.id}" class="${(n.mark==='V'?'v ':'')+(PTX.on?PTX.cls(n):(cr.length?'crit':''))+xcls}"><td class="n">${n.pos}</td><td class="code">${esc(n.code)}</td><td style="padding-left:${8+ind*14}px">${esc(n.desc)}${badge}${ci}</td><td class="n">${fmtQ(n.qty)}</td><td>${n.mark?`<span class="tag ${n.mark}">${n.mark}</span>`:''}</td>${PTX.on?'':`<td class="n">${n.hours?n.hours.toLocaleString('es-ES'):''}</td>`}<td style="text-align:center">${n.obs==='J'?'✓':''}</td>${PTX.on?PTX.cells(n):''}</tr>`;
+}
+// ---------- Filtros Críticas / Desgaste ----------
+function ptHas(n){try{return typeof PTX.has==='function'&&PTX.has(n)}catch(e){return false}}
+function wearOrig(n){const m=n.mark==='V',p=ptHas(n);return m&&p?'b':m?'m':p?'p':''}
+const ORL={m:'manual KHS',p:'selección de parada',b:'manual + parada'};
+function critRows(id,d){
+  let o='';
+  N[id].kids.forEach(k=>{const c=N[k];
+    if(c.kids.length){if(!c.cc)return;o+=row(c,d);if(d<2)o+=critRows(k,d+1)}
+    else if(c.crit.length)o+=row(c,d)});
+  return o;
+}
+function wearRows(id,ind){
+  try{if(PTX.watch)PTX.watch()}catch(e){}
+  const by=new Map();
+  leaves(id).forEach(l=>{const c=N[l];const og=wearOrig(c);if(!og)return;const p=c.parent;if(!by.has(p))by.set(p,[]);by.get(p).push([c,og])});
+  const cs=PTX.on?9:7;let o='';
+  [...by.entries()].sort((a,b)=>a[0]-b[0]).forEach(([p,arr])=>{
+    o+=`<tr class="grph2" style="--sc:${colKid(p)}"><td colspan="${cs}">${esc(pathTxt(p)||N[p].desc)} <small>· ${arr.length} pz</small></td></tr>`;
+    arr.forEach(([c,og])=>{o+=row(c,ind||0,` <span class="orb or-${og}">${ORL[og]}</span>`,' or-'+og)})});
+  return o;
+}
+function rowX(n,ind){
+  let s=row(n,ind);const m=rexp.get(n.id);
+  if(m==='crit')s+=critRows(n.id,ind+1)||`<tr><td colspan="${PTX.on?9:7}" class="nopic">Sin críticas en este conjunto</td></tr>`;
+  else if(m==='wear')s+=wearRows(n.id,ind+1)||`<tr><td colspan="${PTX.on?9:7}" class="nopic">Sin piezas de desgaste en este conjunto</td></tr>`;
+  return s;
+}
+(function(){const s=document.createElement('style');s.textContent='.fm{display:inline-flex;gap:4px;margin-left:8px}.fm button,.rb button{border:1px solid #cfd5df;background:#fff;color:#1b2130;border-radius:6px;padding:2px 8px;font-size:12px;cursor:pointer}.fm button.on{background:#1b2130;color:#fff;border-color:#1b2130}.rb{margin-left:6px;white-space:nowrap}.rb button{padding:0 5px;margin-left:2px}.rb button.on{background:#1b2130;color:#fff}.fmn{padding:5px 12px;font-size:12px;color:#626b7d;border-bottom:1px solid #e6e9ef}.grph2 td{background:#eef1f6;color:#1b2130;font-weight:600;font-size:12px;box-shadow:inset 6px 0 0 var(--sc,#999)}.orb{display:inline-block;font-size:10px;border-radius:9px;padding:0 6px;margin-left:4px;color:#fff;vertical-align:middle}.or-m .orb,.orb.or-m{background:#f08c00}.orb.or-p{background:#1c7ed6}.orb.or-b{background:#7048e8}tr.or-m td:first-child{box-shadow:inset 6px 0 0 #f08c00}tr.or-p td:first-child{box-shadow:inset 6px 0 0 #1c7ed6}tr.or-b td:first-child{box-shadow:inset 6px 0 0 #7048e8}';document.head.appendChild(s)})();
+function fmNote(){
+  if(fm==='crit')return '<div class="fmn">★ Solo conjuntos y piezas con críticas, hasta 3 niveles. Pulsa un conjunto para bajar a él.</div>';
+  if(fm==='wear')return '<div class="fmn">🔧 Piezas de desgaste ordenadas por subconjunto: <span class="orb or-m">manual KHS</span> <span class="orb or-p">selección de parada</span> <span class="orb or-b">manual + parada</span></div>';
+  return '';
 }
 function csvQ(v){return '"'+String(v==null?'':v).replace(/"/g,'""')+'"'}
 function dlCsv(name,h,rows){saveFile(name,'\ufeff'+[h].concat(rows).map(r=>r.map(csvQ).join(';')).join('\n'))}
@@ -280,10 +315,12 @@ function renderNode(){
   const n=N[cur];const pth=path(cur);
   const crumb=['<a data-go="'+ROOT+'">'+esc(M.short)+'</a>'].concat(pth.map((i,k)=>k===pth.length-1?esc(N[i].pos+' '+N[i].desc):`<a data-go="${i}">${esc(N[i].pos+' '+N[i].desc)}</a>`)).join(' › ');
   let body='';
-  if(flat){
+  if(flat&&fm==='all'){
     const walk2=(id,d)=>{N[id].kids.forEach(k=>{const c=N[k];if(c.kids.length){body+=`<tr style="--sc:${colKid(c.id)}" class="asm${PTX.on?PTX.cls(c):(c.crit.length?' crit':'')}" data-open="${c.id}" data-row="${c.id}"><td class="n">${c.pos}</td><td class="code">${esc(c.code)}</td><td style="padding-left:${8+d*14}px">▸ ${esc(c.desc)}${PTX.on?PTX.info(c):critInfo(c)+actBtn(c)}</td><td class="n">${fmtQ(c.qty)}</td><td></td>${PTX.on?'':'<td></td>'}<td><span class="open">abrir${c.pages.length?' · p.'+c.pages[0]:''}</span>${cb2(c)}</td>${PTX.on?PTX.cells(c):''}</tr>`;walk2(k,d+1)}else body+=row(c,d)})};
     walk2(cur,0)}
-  else body=n.kids.map(k=>row(N[k],0)).join('');
+  else if(fm==='crit')body=critRows(cur,0)||'<tr><td colspan="7" class="nopic">Sin piezas críticas en este nivel</td></tr>';
+  else if(fm==='wear')body=wearRows(cur,0)||'<tr><td colspan="7" class="nopic">Sin piezas de desgaste en este nivel</td></tr>';
+  else body=n.kids.map(k=>rowX(N[k],0)).join('');
   const lv=leaves(cur),nv=lv.filter(i=>N[i].mark==='V').length;
   const pgs=n.pages.length;
   let pic;
@@ -303,8 +340,8 @@ function renderNode(){
   modal.innerHTML=`<div class="mh"><div><h2>${esc(n.pos)} · ${esc(n.desc)}</h2><div class="crumb">${crumb} · <span class="code">${esc(n.code)}</span></div></div><button class="x" data-close aria-label="Cerrar">✕</button></div>
   ${navBar(n)}
   <div class="mb"><div class="pic${zoom?' zoom':''}" id="pic">${pic}</div>
-  <div class="tbl"><div class="tt"><label><input type="checkbox" id="chFlat" ${flat?'checked':''}> Ver todos los niveles</label><span class="sum">${lv.length} piezas · ${nv} de desgaste${PTX.on?(PTX.cnt(n)?` · <b style="color:var(--blue)">🛠 ${PTX.cnt(n)} en la parada</b>`:''):(n.cc?` · <b style="color:var(--crit-ink)">★ ${n.cc} críticas</b>`:'')}</span>${PTX.on?PTX.head(n):''}</div>
-  ${subCrit()}<div class="legend"><i style="background:var(--wear)"></i>Pieza de desgaste (V) con duración en horas<i style="background:var(--crit)"></i>Repuesto crítico<i style="background:var(--tag-e)"></i>E = pieza de repuesto<span style="margin-left:10px">✓ = KHS recomienda tener stock</span></div>
+  <div class="tbl"><div class="tt"><span class="fm"><button data-fm="all" class="${fm==='all'?'on':''}">Todo</button><button data-fm="crit" class="${fm==='crit'?'on':''}">★ Críticas</button><button data-fm="wear" class="${fm==='wear'?'on':''}">🔧 Desgaste</button></span> <label ${fm==='all'?'':'style="opacity:.4"'}><input type="checkbox" id="chFlat" ${flat?'checked':''} ${fm==='all'?'':'disabled'}> Ver todos los niveles</label><span class="sum">${lv.length} piezas · ${nv} de desgaste${PTX.on?(PTX.cnt(n)?` · <b style="color:var(--blue)">🛠 ${PTX.cnt(n)} en la parada</b>`:''):(n.cc?` · <b style="color:var(--crit-ink)">★ ${n.cc} críticas</b>`:'')}</span>${PTX.on?PTX.head(n):''}</div>
+  ${fmNote()}${subCrit()}<div class="legend"><i style="background:var(--wear)"></i>Pieza de desgaste (V) con duración en horas<i style="background:var(--crit)"></i>Repuesto crítico<i style="background:var(--tag-e)"></i>E = pieza de repuesto<span style="margin-left:10px">✓ = KHS recomienda tener stock</span></div>
   <table><thead><tr><th class="n">Pos.</th><th>Código</th><th>Descripción</th><th class="n">Uds</th><th>Tipo</th>${PTX.on?'':'<th class="n">Duración (h)</th>'}<th>Stock cliente</th>${PTX.on?'<th class="n" title="Periodo de cambio según el libro de operaciones">Periodo (h)</th><th title="Última parada en la que se cambió (X)">Último cambio</th><th class="n" title="Precio unitario: medio SAP o catálogo KHS Connect. En conjuntos, suma de sus piezas con precio">Precio</th>':''}</tr></thead><tbody>${body||'<tr><td colspan="7" class="nopic">Sin componentes</td></tr>'}</tbody></table></div></div>`;
   loadImgs(modal,M);
   if(hlId!=null){const r=modal.querySelector(`[data-row="${hlId}"]`);if(r){r.classList.add('hl');setTimeout(()=>r.scrollIntoView({block:'center'}),30)}}
@@ -317,6 +354,8 @@ modal.addEventListener('click',e=>{
   const um=t.closest('[data-unmark]');if(um){e.stopPropagation();return removeCrit(N[+um.dataset.unmark].crit.slice())}
   if(t.closest('[data-back]')){if(!t.closest('[disabled]'))navBack();return}
   if(t.closest('[data-treebtn]')){treeShow=!treeShow;const tr=$('#navtree');if(tr){tr.style.display=treeShow?'block':'none';if(treeShow)drawTree()}return}
+  const fb=t.closest('[data-fm]');if(fb){fm=fb.dataset.fm;rexp.clear();hlId=null;return renderNode()}
+  const rf=t.closest('[data-rowf]');if(rf){const [md,id]=rf.dataset.rowf.split(',');const i=+id;if(rexp.get(i)===md)rexp.delete(i);else rexp.set(i,md);return renderNode()}
   const tt=t.closest('[data-tt]');if(tt){const i=+tt.dataset.tt;if(treeOpen.has(i)&&!path(cur).includes(i)&&i!==cur)treeOpen.delete(i);else if(treeOpen.has(i))treeOpen.delete(i);else treeOpen.add(i);drawTree();return}
   if(t.closest('[data-dlsub]'))return csvSub();
   const gh=t.closest('[data-gohl]');if(gh){const [a,b]=gh.dataset.gohl.split(',').map(Number);return openNode(a,b)}

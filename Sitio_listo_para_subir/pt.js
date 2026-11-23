@@ -169,7 +169,7 @@ const _od=onData;onData=function(){_od();if(M&&PT.mode==='pt'){drawSub();if(!vie
 
 function watch(){
   if(!M||PT.sub[M.id])return;const m=M;PT.sub[m.id]=1;
-  try{DB.doc('shared/pt'+(m.suffix||'')).onSnapshot(s=>{PT.docs[m.id]=s.exists?s.data():null;PT.ver[m.id]=(PT.ver[m.id]||0)+1;PS.I=null;if(M&&M.id===m.id&&PT.mode==='pt'&&!PT.busy){drawSub();if(PTX.on){try{drawGroups();drawPlan();refreshModal()}catch(e){}}else if(!view.hidden)render()}},()=>{PT.sub[m.id]=0})}catch(e){PT.sub[m.id]=0}
+  try{DB.doc('shared/pt'+(m.suffix||'')).onSnapshot(s=>{PT.docs[m.id]=s.exists?s.data():null;PT.ver[m.id]=(PT.ver[m.id]||0)+1;PS.I=null;try{if(typeof fm!=='undefined'&&fm==='wear'&&M&&M.id===m.id&&ov.classList.contains('on')&&modalKind==='node')refreshModal()}catch(e){}if(M&&M.id===m.id&&PT.mode==='pt'&&!PT.busy){drawSub();if(PTX.on){try{drawGroups();drawPlan();refreshModal()}catch(e){}}else if(!view.hidden)render()}},()=>{PT.sub[m.id]=0})}catch(e){PT.sub[m.id]=0}
   try{DB.doc('shared/ps'+(m.suffix||'')).onSnapshot(s=>{PS.docs[m.id]=s.exists?s.data():null;PS.ver[m.id]=(PS.ver[m.id]||0)+1;if(M&&M.id===m.id&&PT.mode==='pt'){PS.I=null;drawSub();if(PTX.on){try{drawGroups();drawPlan();refreshModal()}catch(e){}}else if(!view.hidden)render()}},()=>{})}catch(e){}
 }
 
@@ -581,6 +581,7 @@ function PSI(){
 }
 const nodeTxt=id=>N[id].pos+' '+N[id].desc;
 PTX.cnt=n=>PSI().cnt[n.id]||0;
+PTX.has=n=>{try{return !!ptItemFor(n)}catch(e){return false}};PTX.watch=()=>{try{watch()}catch(e){}};
 PTX.cls=n=>{const I=PSI();return (I.self[n.id]!=null||I.cov[n.id]!=null)?' psel':''};
 PTX.note='<b style="color:var(--blue)">🛠n</b> = n elementos elegidos para la próxima parada (abre un subconjunto y pulsa «Añadir a la parada»). Las ✨ sugeridas por periodo de cambio ya cuentan; confírmalas o descártalas. ';
 PTX.info=n=>{
