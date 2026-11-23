@@ -200,7 +200,14 @@ $('#res').onclick=e=>{const it=e.target.closest('.it');if(!it||!it.dataset.id)re
 
 // ---------- Panel superpuesto ----------
 const ov=$('#ov'),modal=$('#modal');
-function openNode(id,hl,keepFlat){modalKind='node';cur=id;hlId=hl==null?null:hl;pageIdx=0;planSel=0;zoom=false;if(!keepFlat)flat=false;ov.classList.add('on');renderNode()}
+let navH=[],navSkip=false,treeShow=false;const treeOpen=new Set();
+function openNode(id,hl,keepFlat){
+  const was=ov.classList.contains('on')&&modalKind==='node'&&cur!=null;
+  if(!was)navH=[];
+  else if(!navSkip&&id!==cur){navH.push({cur,hl:hlId});if(navH.length>60)navH.shift()}
+  navSkip=false;
+  modalKind='node';cur=id;hlId=hl==null?null:hl;pageIdx=0;planSel=0;zoom=false;if(!keepFlat)flat=false;ov.classList.add('on');renderNode()}
+function navBack(){const h=navH.pop();if(!h)return;navSkip=true;openNode(h.cur,h.hl)}
 function close(){ov.classList.remove('on');modalKind=''}
 function refreshModal(){if(!ov.classList.contains('on'))return;if(modalKind==='node')renderNode();else if(modalKind==='crit')critModal(true);else if(modalKind==='list'&&lastList)listModal(...lastList)}
 ov.addEventListener('click',e=>{if(e.target===ov)close()});
@@ -217,7 +224,7 @@ function row(n,ind){
   const cr=n.crit.map(i=>CRIT[i]);
   const ci=PTX.on?PTX.info(n):critInfo(n)+actBtn(n);
   if(isA){const c=leaves(n.id).length;
-    return `<tr class="asm${PTX.on?PTX.cls(n):(cr.length?' crit':'')}" data-open="${n.id}" data-row="${n.id}"><td class="n">${n.pos}</td><td class="code">${esc(n.code)}</td><td style="padding-left:${8+ind*14}px">▸ ${esc(n.desc)}${ci}</td><td class="n">${fmtQ(n.qty)}</td><td></td>${PTX.on?'':'<td class="n"></td>'}<td><span class="open">abrir · ${c} pz${n.pages.length?' · p.'+n.pages[0]:''}</span>${cb2(n)}</td>${PTX.on?PTX.cells(n):''}</tr>`}
+    return `<tr style="--sc:${colKid(n.id)}" class="asm${PTX.on?PTX.cls(n):(cr.length?' crit':'')}" data-open="${n.id}" data-row="${n.id}"><td class="n">${n.pos}</td><td class="code">${esc(n.code)}</td><td style="padding-left:${8+ind*14}px">▸ ${esc(n.desc)}${ci}</td><td class="n">${fmtQ(n.qty)}</td><td></td>${PTX.on?'':'<td class="n"></td>'}<td><span class="open">abrir · ${c} pz${n.pages.length?' · p.'+n.pages[0]:''}</span>${cb2(n)}</td>${PTX.on?PTX.cells(n):''}</tr>`}
   return `<tr data-row="${n.id}" class="${(n.mark==='V'?'v ':'')+(PTX.on?PTX.cls(n):(cr.length?'crit':''))}"><td class="n">${n.pos}</td><td class="code">${esc(n.code)}</td><td style="padding-left:${8+ind*14}px">${esc(n.desc)}${ci}</td><td class="n">${fmtQ(n.qty)}</td><td>${n.mark?`<span class="tag ${n.mark}">${n.mark}</span>`:''}</td>${PTX.on?'':`<td class="n">${n.hours?n.hours.toLocaleString('es-ES'):''}</td>`}<td style="text-align:center">${n.obs==='J'?'✓':''}</td>${PTX.on?PTX.cells(n):''}</tr>`;
 }
 function csvQ(v){return '"'+String(v==null?'':v).replace(/"/g,'""')+'"'}
@@ -246,6 +253,25 @@ function subCrit(){
 // ---------- Planos: subgrupo + grupo anterior, con la pieza marcada ----------
 (function(){const s=document.createElement('style');s.textContent='.plmark{margin:6px;padding:8px 10px;border:2px solid #e8590c;background:#fff4e6;color:#1b2130;border-radius:8px;font-size:13px;line-height:1.35}.plmark b{color:#c2410c;font-size:15px}.plmark small{display:block;color:#626b7d;margin-top:2px}.pgs.pl button{white-space:normal;text-align:left}';document.head.appendChild(s)})();
 const okPg=id=>N[id].pages.filter(p=>M.pix[p]!=null);
+// ---------- Navegación: atrás, subir, hijos con color y árbol ----------
+const PALC=['#e8590c','#1c7ed6','#2f9e44','#ae3ec9','#c92a2a','#0c8599','#d6336c','#5f3dc4','#e67700','#495057'];
+function colKid(id){const p=N[id].parent;if(p==null||p<0)return PALC[0];const i=N[p].kids.indexOf(id);return PALC[(i<0?0:i)%PALC.length]}
+(function(){const s=document.createElement('style');s.textContent='.navbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 14px;border-bottom:1px solid #d7dce5;position:relative;font-size:12px}.navbar .nl{color:#626b7d;margin-left:6px}.chip{border:1px solid #cfd5df;border-left:6px solid var(--sc,#999);background:#fff;color:#1b2130;border-radius:6px;padding:3px 8px;font-size:12px;cursor:pointer;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.chip:hover{background:#f1f4f9}.chip.up{border-left-width:1px;border-color:#1c7ed6;color:#1c4f9c;font-weight:600}.navbar button[disabled]{opacity:.4;cursor:default}#navtree{position:absolute;left:10px;top:100%;z-index:40;background:#fff;color:#1b2130;border:1px solid #cfd5df;border-radius:8px;box-shadow:0 8px 24px #0003;max-height:60vh;overflow:auto;width:min(480px,92vw);padding:6px}.tn{font-size:12px;padding:2px 0;white-space:nowrap}.tn a{cursor:pointer}.tn a:hover{text-decoration:underline}.tn a.cur{font-weight:700;color:#c2410c}.tn small{color:#8a93a5;margin-left:4px}.tn .tt{cursor:pointer;display:inline-block;width:16px;text-align:center;color:#626b7d}tr.asm td:first-child{box-shadow:inset 6px 0 0 var(--sc,transparent)}';document.head.appendChild(s)})();
+function treeHtml(){
+  const open=new Set(treeOpen);path(cur).forEach(i=>open.add(i));open.add(cur);
+  let o='';
+  const walk=(id,d)=>{N[id].kids.forEach(k=>{const c=N[k];if(!c.kids.length)return;const isO=open.has(k),hasSub=c.kids.some(x=>N[x].kids.length);
+    o+=`<div class="tn" style="padding-left:${d*14}px"><span class="tt" ${hasSub?`data-tt="${k}"`:''}>${hasSub?(isO?'▾':'▸'):'·'}</span><a data-go="${k}" class="${k===cur?'cur':''}" style="border-left:4px solid ${colKid(k)};padding-left:4px">${esc(c.pos+' '+c.desc)}</a><small>${leaves(k).length} pz</small></div>`;
+    if(isO&&hasSub)walk(k,d+1)})};
+  walk(ROOT,0);return o||'<div class="tn">Sin subconjuntos</div>';
+}
+function drawTree(){const t=$('#navtree');if(!t)return;const sc=t.scrollTop;t.innerHTML=treeHtml();t.scrollTop=sc;const c=t.querySelector('a.cur');if(c&&!sc)c.scrollIntoView({block:'center'})}
+function navBar(n){
+  const p=n.parent,up=(p!=null&&p>=0)?p:null;
+  const upTxt=up==null?'':(N[up].l>=2?N[up].pos+' '+N[up].desc:esc(M.short));
+  const kids=n.kids.filter(k=>N[k].kids.length);
+  return `<div class="navbar"><button class="mini" data-back ${navH.length?'':'disabled'} title="Volver a lo que veías antes">← Atrás</button>${up!=null?`<button class="chip up" data-gohl="${up},${n.id}" title="Subir al conjunto padre">↑ Subir: ${N[up].l>=2?esc(upTxt):upTxt}</button>`:''}<button class="mini" data-treebtn>🌳 Árbol</button>${kids.length?`<span class="nl">Subconjuntos:</span>`+kids.map(k=>`<button class="chip" data-open="${k}" style="--sc:${colKid(k)}" title="Bajar a este subconjunto">▾ ${esc(N[k].pos+' '+N[k].desc)} <small>${leaves(k).length} pz</small></button>`).join(''):''}<div id="navtree" style="display:${treeShow?'block':'none'}">${treeShow?treeHtml():''}</div></div>`;
+}
 // planes a mostrar: el más cercano con plano (este subgrupo o el superior) y el grupo anterior a ése
 function planChain(id){const ch=[];let c=id;while(c!=null&&c>=0&&N[c].l>=2&&ch.length<2){if(okPg(c).length)ch.push(c);c=N[c].parent}return ch}
 // nodo que lleva el número a buscar en el plano de pn: la pieza marcada, o el conjunto que la contiene
@@ -255,17 +281,17 @@ function renderNode(){
   const crumb=['<a data-go="'+ROOT+'">'+esc(M.short)+'</a>'].concat(pth.map((i,k)=>k===pth.length-1?esc(N[i].pos+' '+N[i].desc):`<a data-go="${i}">${esc(N[i].pos+' '+N[i].desc)}</a>`)).join(' › ');
   let body='';
   if(flat){
-    const walk2=(id,d)=>{N[id].kids.forEach(k=>{const c=N[k];if(c.kids.length){body+=`<tr class="asm${PTX.on?PTX.cls(c):(c.crit.length?' crit':'')}" data-open="${c.id}" data-row="${c.id}"><td class="n">${c.pos}</td><td class="code">${esc(c.code)}</td><td style="padding-left:${8+d*14}px">▸ ${esc(c.desc)}${PTX.on?PTX.info(c):critInfo(c)+actBtn(c)}</td><td class="n">${fmtQ(c.qty)}</td><td></td>${PTX.on?'':'<td></td>'}<td><span class="open">abrir${c.pages.length?' · p.'+c.pages[0]:''}</span>${cb2(c)}</td>${PTX.on?PTX.cells(c):''}</tr>`;walk2(k,d+1)}else body+=row(c,d)})};
+    const walk2=(id,d)=>{N[id].kids.forEach(k=>{const c=N[k];if(c.kids.length){body+=`<tr style="--sc:${colKid(c.id)}" class="asm${PTX.on?PTX.cls(c):(c.crit.length?' crit':'')}" data-open="${c.id}" data-row="${c.id}"><td class="n">${c.pos}</td><td class="code">${esc(c.code)}</td><td style="padding-left:${8+d*14}px">▸ ${esc(c.desc)}${PTX.on?PTX.info(c):critInfo(c)+actBtn(c)}</td><td class="n">${fmtQ(c.qty)}</td><td></td>${PTX.on?'':'<td></td>'}<td><span class="open">abrir${c.pages.length?' · p.'+c.pages[0]:''}</span>${cb2(c)}</td>${PTX.on?PTX.cells(c):''}</tr>`;walk2(k,d+1)}else body+=row(c,d)})};
     walk2(cur,0)}
   else body=n.kids.map(k=>row(N[k],0)).join('');
   const lv=leaves(cur),nv=lv.filter(i=>N[i].mark==='V').length;
   const pgs=n.pages.length;
   let pic;
-  const ch=planChain(cur);if(planSel>=ch.length)planSel=0;
+  const ch=planChain(cur).slice(0,1);planSel=0;
   if(!ch.length)pic='<div class="nopic">Este elemento no tiene plano propio en el PDF.<br>Consulta el plano del subconjunto superior.</div>';
   else{
     const pn=ch[planSel],pp=okPg(pn),pi=Math.min(pageIdx,pp.length-1);
-    const tabs=(ch.length>1||pn!==cur)?`<div class="pgs pl"><span>Plano:</span>${ch.map((id,i)=>`<button class="${i===planSel?'on':''}" data-plsel="${i}">${i===0?(id===cur?'Este subgrupo':'Subgrupo'):'Grupo anterior'}: ${esc(N[id].pos+' '+N[id].desc)}</button>`).join('')}</div>`:'';
+    const tabs=pn!==cur?`<div class="plmark" style="border-color:#1c7ed6;background:#edf4ff">Este subconjunto no tiene plano propio en el PDF: se muestra el del conjunto <b>${esc(N[pn].pos+' '+N[pn].desc)}</b>.</div>`:'';
     let mk='';
     if(hlId!=null&&hlId>=0){const hn=N[hlId],mi=markIn(pn,hlId);
       if(mi!=null){const mn=N[mi];
@@ -275,6 +301,7 @@ function renderNode(){
   }
   const keepScroll=modal.querySelector('.tbl')?modal.querySelector('.tbl').scrollTop:0;
   modal.innerHTML=`<div class="mh"><div><h2>${esc(n.pos)} · ${esc(n.desc)}</h2><div class="crumb">${crumb} · <span class="code">${esc(n.code)}</span></div></div><button class="x" data-close aria-label="Cerrar">✕</button></div>
+  ${navBar(n)}
   <div class="mb"><div class="pic${zoom?' zoom':''}" id="pic">${pic}</div>
   <div class="tbl"><div class="tt"><label><input type="checkbox" id="chFlat" ${flat?'checked':''}> Ver todos los niveles</label><span class="sum">${lv.length} piezas · ${nv} de desgaste${PTX.on?(PTX.cnt(n)?` · <b style="color:var(--blue)">🛠 ${PTX.cnt(n)} en la parada</b>`:''):(n.cc?` · <b style="color:var(--crit-ink)">★ ${n.cc} críticas</b>`:'')}</span>${PTX.on?PTX.head(n):''}</div>
   ${subCrit()}<div class="legend"><i style="background:var(--wear)"></i>Pieza de desgaste (V) con duración en horas<i style="background:var(--crit)"></i>Repuesto crítico<i style="background:var(--tag-e)"></i>E = pieza de repuesto<span style="margin-left:10px">✓ = KHS recomienda tener stock</span></div>
@@ -288,6 +315,9 @@ modal.addEventListener('click',e=>{
   if(t.closest('[data-close]'))return close();
   const mk=t.closest('[data-mark]');if(mk){e.stopPropagation();return addCrit(N[+mk.dataset.mark])}
   const um=t.closest('[data-unmark]');if(um){e.stopPropagation();return removeCrit(N[+um.dataset.unmark].crit.slice())}
+  if(t.closest('[data-back]')){if(!t.closest('[disabled]'))navBack();return}
+  if(t.closest('[data-treebtn]')){treeShow=!treeShow;const tr=$('#navtree');if(tr){tr.style.display=treeShow?'block':'none';if(treeShow)drawTree()}return}
+  const tt=t.closest('[data-tt]');if(tt){const i=+tt.dataset.tt;if(treeOpen.has(i)&&!path(cur).includes(i)&&i!==cur)treeOpen.delete(i);else if(treeOpen.has(i))treeOpen.delete(i);else treeOpen.add(i);drawTree();return}
   if(t.closest('[data-dlsub]'))return csvSub();
   const gh=t.closest('[data-gohl]');if(gh){const [a,b]=gh.dataset.gohl.split(',').map(Number);return openNode(a,b)}
   const g=t.closest('[data-go]');if(g)return openNode(+g.dataset.go);
