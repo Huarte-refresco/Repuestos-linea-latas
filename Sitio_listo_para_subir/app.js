@@ -250,6 +250,15 @@ function wearRows(id,ind){
     arr.forEach(([c,og])=>{o+=row(c,ind||0,` <span class="orb or-${og}">${ORL[og]}</span>`,' or-'+og)})});
   return o;
 }
+function chgRows(id,ind){
+  const by=new Map();
+  PTX.sel(id).forEach(({n,e})=>{const p=n.parent;if(!by.has(p))by.set(p,[]);by.get(p).push([n,e])});
+  const cs=PTX.on?9:7;let o='';
+  [...by.entries()].sort((a,b)=>a[0]-b[0]).forEach(([p,arr])=>{
+    o+=`<tr class="grph2" style="--sc:${colKid(p)}"><td colspan="${cs}">${esc(pathTxt(p)||N[p].desc)} <small>· ${arr.length} a cambiar</small></td></tr>`;
+    arr.forEach(([c,e])=>{o+=row(c,ind||0,` <span class="orb or-p">${esc(e.m||'X')}${e.auto?' ✨ sugerida':''}</span>`,' or-p')})});
+  return o;
+}
 function rowX(n,ind){
   let s=row(n,ind);const m=rexp.get(n.id);
   if(m==='crit')s+=critRows(n.id,ind+1)||`<tr><td colspan="${PTX.on?9:7}" class="nopic">Sin críticas en este conjunto</td></tr>`;
@@ -260,6 +269,7 @@ function rowX(n,ind){
 function fmNote(){
   if(fm==='crit')return '<div class="fmn">★ Solo conjuntos y piezas con críticas, hasta 3 niveles. Pulsa un conjunto para bajar a él.</div>';
   if(fm==='wear')return '<div class="fmn">🔧 Piezas de desgaste ordenadas por subconjunto: <span class="orb or-m">manual KHS</span> <span class="orb or-p">selección de parada</span> <span class="orb or-b">manual + parada</span></div>';
+  if(fm==='chg')return '<div class="fmn">🛠 Piezas de cambio de este grupo (las elegidas para la parada), agrupadas por subconjunto. La marca es la de la parada: X cambiar · A almacén · P pedir precio. ✨ = sugerida por periodo, pendiente de confirmar.</div>';
   return '';
 }
 // ---------- Ficha de pieza (al pinchar): stock y último cambio ----------
@@ -352,6 +362,7 @@ function renderNode(){
     walk2(cur,0)}
   else if(fm==='crit')body=critRows(cur,0)||'<tr><td colspan="7" class="nopic">Sin piezas críticas en este nivel</td></tr>';
   else if(fm==='wear')body=wearRows(cur,0)||'<tr><td colspan="7" class="nopic">Sin piezas de desgaste en este nivel</td></tr>';
+  else if(fm==='chg')body=chgRows(cur,0)||'<tr><td colspan="7" class="nopic">Ninguna pieza de este grupo está elegida para la parada. Usa «＋ Añadir a la parada» en la vista Todo.</td></tr>';
   else body=n.kids.map(k=>rowX(N[k],0)).join('');
   const lv=leaves(cur),nv=lv.filter(i=>N[i].mark==='V').length;
   const pgs=n.pages.length;
@@ -372,7 +383,7 @@ function renderNode(){
   modal.innerHTML=`<div class="mh"><div><h2>${esc(n.pos)} · ${esc(n.desc)}</h2><div class="crumb">${crumb} · <span class="code">${esc(n.code)}</span></div></div><button class="x" data-close aria-label="Cerrar">✕</button></div>
   ${navBar(n)}
   <div class="mb"><div class="pic${zoom?' zoom':''}" id="pic">${pic}</div>
-  <div class="tbl"><div class="tt"><span class="fm"><button data-fm="all" class="${fm==='all'?'on':''}">Todo</button><button data-fm="crit" class="${fm==='crit'?'on':''}">★ Críticas</button><button data-fm="wear" class="${fm==='wear'?'on':''}">🔧 Desgaste</button></span> <label ${fm==='all'?'':'style="opacity:.4"'}><input type="checkbox" id="chFlat" ${flat?'checked':''} ${fm==='all'?'':'disabled'}> Ver todos los niveles</label><span class="sum">${lv.length} piezas · ${nv} de desgaste${PTX.on?(PTX.cnt(n)?` · <b style="color:var(--blue)">🛠 ${PTX.cnt(n)} en la parada</b>`:''):(n.cc?` · <b style="color:var(--crit-ink)">★ ${n.cc} críticas</b>`:'')}</span>${PTX.on?PTX.head(n):''}</div>
+  <div class="tbl"><div class="tt"><span class="fm"><button data-fm="all" class="${fm==='all'?'on':''}">Todo</button><button data-fm="crit" class="${fm==='crit'?'on':''}">★ Críticas</button><button data-fm="wear" class="${fm==='wear'?'on':''}">🔧 Desgaste</button><button data-fm="chg" class="${fm==='chg'?'on':''}">🛠 Cambio${(()=>{let k=0;try{k=PTX.sel(cur).length}catch(e){}return k?' ('+k+')':''})()}</button></span> <label ${fm==='all'?'':'style="opacity:.4"'}><input type="checkbox" id="chFlat" ${flat?'checked':''} ${fm==='all'?'':'disabled'}> Ver todos los niveles</label><span class="sum">${lv.length} piezas · ${nv} de desgaste${PTX.on?(PTX.cnt(n)?` · <b style="color:var(--blue)">🛠 ${PTX.cnt(n)} en la parada</b>`:''):(n.cc?` · <b style="color:var(--crit-ink)">★ ${n.cc} críticas</b>`:'')}</span>${PTX.on?PTX.head(n):''}</div>
   ${fmNote()}${subCrit()}<div class="legend"><i style="background:var(--wear)"></i>Pieza de desgaste (V) con duración en horas<i style="background:var(--crit)"></i>Repuesto crítico<i style="background:var(--tag-e)"></i>E = pieza de repuesto<span style="margin-left:10px">✓ = KHS recomienda tener stock</span></div>
   <table><thead><tr><th class="n">Pos.</th><th>Código</th><th>Descripción</th><th class="n">Uds</th><th>Tipo</th>${PTX.on?'':'<th class="n">Duración (h)</th>'}<th>Stock cliente</th>${PTX.on?'<th class="n" title="Periodo de cambio según el libro de operaciones">Periodo (h)</th><th title="Última parada en la que se cambió (X)">Último cambio</th><th class="n" title="Precio unitario: medio SAP o catálogo KHS Connect. En conjuntos, suma de sus piezas con precio">Precio</th>':''}</tr></thead><tbody>${body||'<tr><td colspan="7" class="nopic">Sin componentes</td></tr>'}</tbody></table></div></div>`;
   loadImgs(modal,M);

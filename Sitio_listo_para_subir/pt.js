@@ -169,7 +169,7 @@ const _od=onData;onData=function(){_od();if(M&&PT.mode==='pt'){drawSub();if(!vie
 
 function watch(){
   if(!M||PT.sub[M.id])return;const m=M;PT.sub[m.id]=1;
-  try{DB.doc('shared/pt'+(m.suffix||'')).onSnapshot(s=>{PT.docs[m.id]=s.exists?s.data():null;PT.ver[m.id]=(PT.ver[m.id]||0)+1;PS.I=null;try{refreshDet()}catch(e){}try{if(typeof fm!=='undefined'&&fm==='wear'&&M&&M.id===m.id&&ov.classList.contains('on')&&modalKind==='node')refreshModal()}catch(e){}if(M&&M.id===m.id&&PT.mode==='pt'&&!PT.busy){drawSub();if(PTX.on){try{drawGroups();drawPlan();refreshModal()}catch(e){}}else if(!view.hidden)render()}},()=>{PT.sub[m.id]=0})}catch(e){PT.sub[m.id]=0}
+  try{DB.doc('shared/pt'+(m.suffix||'')).onSnapshot(s=>{PT.docs[m.id]=s.exists?s.data():null;PT.ver[m.id]=(PT.ver[m.id]||0)+1;PS.I=null;try{refreshDet()}catch(e){}try{if(typeof fm!=='undefined'&&(fm==='wear'||fm==='chg')&&M&&M.id===m.id&&ov.classList.contains('on')&&modalKind==='node')refreshModal()}catch(e){}if(M&&M.id===m.id&&PT.mode==='pt'&&!PT.busy){drawSub();if(PTX.on){try{drawGroups();drawPlan();refreshModal()}catch(e){}}else if(!view.hidden)render()}},()=>{PT.sub[m.id]=0})}catch(e){PT.sub[m.id]=0}
   try{DB.doc('shared/ps'+(m.suffix||'')).onSnapshot(s=>{PS.docs[m.id]=s.exists?s.data():null;PS.ver[m.id]=(PS.ver[m.id]||0)+1;if(M&&M.id===m.id&&PT.mode==='pt'){PS.I=null;drawSub();if(PTX.on){try{drawGroups();drawPlan();refreshModal()}catch(e){}}else if(!view.hidden)render()}},()=>{})}catch(e){}
 }
 
@@ -622,6 +622,7 @@ PTX.cnt=n=>PSI().cnt[n.id]||0;
 (function(){const s=document.createElement('style');s.textContent='.ptt tr.hgrp td{background:var(--gb);color:#1b2130;font-size:13px;padding:7px 10px;border-top:8px solid #fff;cursor:pointer}.ptt tr.hgrp .hgt{display:inline-block;width:16px}.ptt tr.hrow td:not(.nx){background:var(--gt);color:#1b2130}.ptt tr.hrow td:first-child{box-shadow:inset 6px 0 0 var(--gb)}.ptt tr.hrow td{border-bottom:1px solid #fff}';document.head.appendChild(s)})();
 (function(){const s=document.createElement('style');s.textContent='.ptfi{display:block;width:100%;min-width:54px;max-width:210px;margin-top:3px;font-size:11px;font-weight:400;padding:2px 4px;border:1px solid var(--line,#ccd);border-radius:5px;background:#fff;color:#1b2130;box-sizing:border-box}.ptt th.c .ptfi{min-width:34px;padding:1px 0}';document.head.appendChild(s)})();
 PTX.has=n=>{try{return !!ptItemFor(n)}catch(e){return false}};PTX.chg=n=>{try{const d=doc(),it=d&&ptItemFor(n);if(!it)return null;const list=stopsOf(d).filter(x=>it.hist&&it.hist[x]&&mcls(it.hist[x])==='chg'&&!String(it.hist[x]).includes('?'));const du=dueMap().get(it.id);return {per:it.per,last:lastChange(it,d),list,due:du?du.why:null}}catch(e){return null}};PTX.watch=()=>{try{watch()}catch(e){}};
+PTX.sel=cur=>{const I=PSI(),sel=psEff();return Object.entries(I.self).filter(([id])=>+id!==cur&&inSub(+id,cur)).map(([id,k])=>({n:N[+id],k,e:sel[k]||{}}))};
 PTX.cls=n=>{const I=PSI();return (I.self[n.id]!=null||I.cov[n.id]!=null)?' psel':''};
 PTX.note='<b style="color:var(--blue)">🛠n</b> = n elementos elegidos para la próxima parada (abre un subconjunto y pulsa «Añadir a la parada»). Las ✨ sugeridas por periodo de cambio ya cuentan; confírmalas o descártalas. ';
 PTX.info=n=>{
@@ -819,7 +820,7 @@ view.addEventListener('input',e=>{const f=e.target.closest('input[data-pf]');if(
 view.addEventListener('change',e=>{const sl=e.target.closest('select[data-pf]');if(sl){PT.pf[sl.dataset.pf]=sl.value;renderPlan();return}const i=e.target.closest('[data-pnote]');if(i)persist(i.dataset.pnote,{note:i.value});const c=e.target.closest('#ptAuto');if(c){PT.auto=c.checked;try{localStorage.setItem('ptAuto',PT.auto?'1':'0')}catch(_){}PS.I=null;drawSub();render()}});
 
 // ---------- protección: un fallo en el modo parada nunca deja la pantalla oscura ----------
-['cnt','cls','info','head','sub','cells'].forEach(k=>{const f=PTX[k];PTX[k]=function(){try{return f.apply(this,arguments)}catch(e){console.error('PTX.'+k,e);return k==='cnt'?0:(k==='cells'?'<td></td><td></td><td></td>':'')}}});
+['cnt','cls','info','head','sub','cells','sel'].forEach(k=>{const f=PTX[k];PTX[k]=function(){try{return f.apply(this,arguments)}catch(e){console.error('PTX.'+k,e);return k==='cnt'?0:k==='sel'?[]:(k==='cells'?'<td></td><td></td><td></td>':'')}}});
 const _rn=renderNode;
 renderNode=function(){
   modal.classList.toggle('ptx',!!PTX.on);
