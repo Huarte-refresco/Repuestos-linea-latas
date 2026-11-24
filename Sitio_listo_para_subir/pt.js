@@ -768,7 +768,7 @@ function renderPlan(){
   const fe=document.activeElement&&document.activeElement.dataset&&document.activeElement.dataset.pf;
   const fp=fe?document.activeElement.selectionStart:0;
   view.innerHTML=`<div class="ptc"><div class="ptbar"><b style="font-size:16px">Plan de la parada · ${esc(M.short||M.name)}</b>${nx?`<span class="ptmeta">Próxima parada: <b>${esc(nx)}</b></span>`:''}<label class="ptmeta" title="Piezas cuyo periodo de cambio vence en la próxima parada, según el último cambio registrado"><input type="checkbox" id="ptAuto" ${PT.auto?'checked':''}> ✨ Sugerir por periodo de cambio</label><span class="sp"></span>
-      ${CAN&&d?`<button class="ptb ghost" id="ptImp" title="Añade al plan las piezas marcadas en la próxima parada en el libro de operaciones">Traer del libro (${esc(nx||'—')})</button>`:''}
+      ${CAN&&d?`<button class="ptb ghost" id="ptImp" title="Lanzar la parada: revisa qué piezas marcadas en el libro se harán y cuáles no, y añade las que quieras al plan">Lanzar parada (${esc(nx||'—')})</button>`:''}
       ${CAN&&nAuto?`<button class="ptb acc" id="ptAccAll">Confirmar las ${nAuto} sugeridas</button>`:''}${CAN&&nRej?`<button class="ptb ghost" id="ptRejClr">Recuperar ${nRej} descartadas</button>`:''}<button class="ptb ghost" id="ptGcol" title="Plegar o desplegar todos los subgrupos">Plegar / desplegar subgrupos</button><button class="ptb acc" id="ptPdf" title="PDF para los técnicos: una hoja por subgrupo con el plano (números rodeados en rojo) y la tabla de piezas">⬇ PDF para técnicos</button><button class="ptb ghost" id="ptExpP">Exportar lista (Excel)</button>${CAN&&ents.length?'<button class="ptb ghost" id="ptClrAll">Vaciar plan</button>':''}
       <button class="ptb acc" id="ptGoSel">＋ Seleccionar en el plano</button></div>
     <div class="ptcards">${card(ents.length,'elementos en el plan','chg')}${card(nAuto,'sugeridos por periodo','alm','src','auto')}${card(nA,'subconjuntos completos','alm','typ','a')}${card(cov.length,'piezas incluidas')}${card(ncr,'piezas críticas','none','crit','yes')}<div class="ptcard k-chg" style="cursor:default" title="Suma de precio × cantidad de los elementos con precio"><b>${eur(impAll)}</b><span>importe estimado (solo piezas con precio)</span></div>${card(nSinPr,'elementos sin precio','part','pr','no')}${card(sc.ok,'con stock suficiente','ok','stk','ok')}${card(sc.part,'stock parcial','part','stk','part')}${card(sc.none,'sin stock','none','stk','none')}${card(sc.nosap,'sin SAP / sin dato','nosap','stk','nosap')}</div>
@@ -783,16 +783,51 @@ function renderPlan(){
   if(b('#ptExpP'))b('#ptExpP').onclick=()=>exportPlan(rows);
   if(b('#ptPdf'))b('#ptPdf').onclick=()=>{if(window.PDFP)window.PDFP.make(rows,{stop:nx||''});else toast('El generador de PDF aún no está cargado; recarga la página')};
   if(b('#ptGcol'))b('#ptGcol').onclick=()=>{const any=[...G.keys()].some(k=>!gcol(k));[...G.keys()].forEach(k=>{PT.gc[M.id+'|'+k]=any});renderPlan()};
+  if(PT.lx&&PT.lx.m===M.id){const lxd=document.createElement('div');lxd.className='ptc lxp';lxd.innerHTML=lxPanel(PT.lx);view.insertBefore(lxd,view.children[1]||null);lxBind(lxd,PT.lx)}
   const ca=b('#ptClrAll');if(ca)ca.onclick=()=>{if(ca.dataset.sure){psPatch(Object.fromEntries(Object.keys(sel).filter(k=>!sel[k].auto).map(k=>[k,null])));Object.entries(sel).forEach(([k,en])=>{if(en.auto)psRemove(k)});toast('Plan vaciado')}else{ca.dataset.sure=1;ca.textContent='¿Seguro? Pulsa otra vez';setTimeout(()=>{if(ca.isConnected){delete ca.dataset.sure;ca.textContent='Vaciar plan'}},4000)}};
 }
+function subOfIt(it){const SM=PT.sm&&PT.sm[M.id],i=SM&&SM.map[K(it.code)];return (i!=null&&SM.names[i])||it.grp||''}
 function importLibro(){
-  const d=doc();if(!d||!CAN)return;const st=d.next||PT.f.stop;const I=PSI(),ch={};let n=0;
-  itemsOf(d).forEach(it=>{const m=it.hist&&it.hist[st];if(!m||!['chg','alm','pre','rev'].includes(mcls(m)))return;
-    const occ=CODEIDX.get(K(it.code));if(!occ||!occ.length)return;const id=occ[0];
-    if(I.cov[id]!=null||I.self[id]!=null)return;const node=N[id];const k=nkey(node);if(ch[k])return;
-    ch[k]=nodeEntry(node,{m:m.replace('?',''),src:'libro '+st});n++});
-  if(!n){toast('No hay piezas nuevas con marca en '+st+' que estén en el despiece de esta máquina.');return}
-  psPatch(ch);toast(n+' piezas añadidas desde el libro ('+st+')');
+  const d=doc();if(!d||!CAN)return;const st=d.next||PT.f.stop;const I=PSI(),L=lookups();
+  if(PT.sm===undefined)PT.sm={};if(PT.sm[M.id]===undefined){PT.sm[M.id]=null;fetch('sub_'+M.id+'.json?v='+((window.MAPA_CONFIG&&window.MAPA_CONFIG.v)||'1')).then(r=>r.ok?r.json():null).then(j=>{if(j){PT.sm[M.id]=j;if(PT.lx)importLibro()}}).catch(()=>{})}
+  const will=[],no=[];let have=0;const seen=new Set();
+  itemsOf(d).forEach(it=>{const m=it.hist&&it.hist[st];if(!m)return;const c=mcls(m);if(!c)return;
+    const occ=CODEIDX.get(K(it.code));
+    const base={it,m:String(m).replace('?',''),prov:String(m).includes('?'),sub:subOfIt(it),code:it.code,desc:it.desc,pos:it.pos};
+    if(!occ||!occ.length){no.push(Object.assign(base,{why:'No figura en el despiece de esta máquina: no se puede añadir',can:false,on:false}));return}
+    const id=occ[0];if(I.cov[id]!=null||I.self[id]!=null){have++;return}
+    const k=nkey(N[id]);if(seen.has(k))return;seen.add(k);
+    const ci=codeInfo(it.code,it.qty>0?it.qty:1,L,it.pos);Object.assign(base,{id,k,S:ci.S,can:true});
+    if(['chg','alm','pre','rev'].includes(c))will.push(Object.assign(base,{on:true}));
+    else no.push(Object.assign(base,{why:c==='des'?'Marcada como descartada (D)':'La marca '+m+' no es de cambio',on:false}))});
+  PT.lx={m:M.id,st,will,no,have};renderPlan();
+}
+function lxClose(){PT.lx=null;renderPlan()}
+function lxApply(){
+  const lx=PT.lx;if(!lx)return;const ch={};let n=0;
+  lx.will.concat(lx.no).forEach(x=>{if(x.on&&x.can&&x.k&&!ch[x.k]){ch[x.k]=nodeEntry(N[x.id],{m:x.m,src:'libro '+lx.st});n++}});
+  PT.lx=null;
+  if(!n){renderPlan();toast('No había ninguna pieza marcada para añadir');return}
+  psPatch(ch);toast(n+' piezas añadidas al plan desde el libro ('+lx.st+')');
+}
+function lxPanel(lx){
+  const all=lx.will.concat(lx.no);all.forEach((x,i)=>x.i=i);
+  const PAL=[['#fff2cc','#ffd966'],['#ddebf7','#9dc3e6'],['#fce4d6','#f4b183'],['#e2efda','#a9d08e']];
+  const order=[];all.forEach(x=>{const s=x.sub||'(sin subconjunto)';if(!order.includes(s))order.push(s)});
+  const sec=(t,arr,hint)=>{
+    if(!arr.length)return `<div class="lxs"><b>${t}</b> <span class="ptmeta">· ninguna</span></div>`;
+    const m=new Map();arr.forEach(x=>{const s=x.sub||'(sin subconjunto)';if(!m.has(s))m.set(s,[]);m.get(s).push(x)});
+    return `<div class="lxs"><b>${t}</b> <span class="ptmeta">· ${arr.length} · ${hint}</span> <a href="#" data-lxall="${arr===lx.will?'w':'n'}:1">marcar todas</a> · <a href="#" data-lxall="${arr===lx.will?'w':'n'}:0">ninguna</a></div>`+[...m].map(([s,xs])=>{const c=PAL[order.indexOf(s)%PAL.length];
+      return `<div class="lxg" style="--gt:${c[0]};--gb:${c[1]}"><div class="lxh"><b>${esc(s)}</b> <span class="ptmeta">· ${xs.length}</span></div>`+xs.map(x=>`<label class="lxr"><input type="checkbox" data-lxi="${x.i}" ${x.on?'checked':''} ${x.can?'':'disabled'}> <span class="code">${esc(x.code)}</span> ${esc(x.desc)} <span class="mk ${mcls(x.m)}">${esc(x.m)}</span>${x.prov?' <small class="ptmeta">(provisional ?)</small>':''}${x.S?` <span class="sbox s-${x.S.s}" title="${SLAB[x.S.s]}"><span class="sdot s-${x.S.s}"></span>${x.S.s==='nosap'?'—':fmtQ(x.S.st)+' / '+fmtQ(x.S.need)}</span>`:''}${x.why?` <small class="lxw">${esc(x.why)}</small>`:''}</label>`).join('')+'</div>'}).join('')};
+  return `<div class="lxh1"><b style="font-size:15px">Lanzar la parada ${esc(lx.st)}</b><span class="ptmeta"> · marcadas en el libro de operaciones</span><span class="sp"></span><button class="ptb acc" id="lxOk"></button><button class="ptb ghost" id="lxNo">Cancelar</button></div>
+  <div class="ptmeta" style="margin:4px 0 8px">${lx.have?lx.have+' ya están en el plan y no se repiten. ':''}Marca o desmarca cada pieza; al aceptar se añaden al plan las marcadas.</div>`+sec('✓ Se harán',lx.will,'marcadas X / A / P / R en el libro')+sec('✕ No se harán',lx.no,'puedes incluirlas marcándolas')
+}
+function lxBind(root,lx){
+  const all=lx.will.concat(lx.no);
+  const upd=()=>{const n=all.filter(x=>x.on&&x.can).length;const b=root.querySelector('#lxOk');b.textContent='Añadir '+n+' al plan';b.disabled=!n};
+  root.querySelectorAll('[data-lxi]').forEach(cb=>cb.onchange=()=>{all[+cb.dataset.lxi].on=cb.checked;upd()});
+  root.querySelectorAll('[data-lxall]').forEach(a=>a.onclick=e=>{e.preventDefault();const[w,v]=a.dataset.lxall.split(':');(w==='w'?lx.will:lx.no).forEach(x=>{if(x.can)x.on=v==='1'});root.querySelectorAll('[data-lxi]').forEach(cb=>{cb.checked=all[+cb.dataset.lxi].on});upd()});
+  root.querySelector('#lxOk').onclick=lxApply;root.querySelector('#lxNo').onclick=lxClose;upd();
 }
 function exportPlan(rows){
   if(!window.XLSX){toast('No se pudo cargar el lector de Excel');return}
@@ -834,3 +869,5 @@ renderNode=function(){
 
 sync();
 })();
+
+(function(){const s=document.createElement('style');s.textContent='.lxp{border:2px solid #1c7ed6;border-radius:10px;margin:8px 0;padding:10px 12px}.lxh1{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.lxh1 .sp{flex:1}.lxs{margin:10px 0 4px;font-size:13px}.lxg{margin:6px 0;border-radius:6px;overflow:hidden;background:var(--gt)}.lxh{background:var(--gb);color:#1b2130;padding:4px 10px;font-size:12.5px}.lxr{display:block;padding:3px 10px;font-size:12.5px;color:#1b2130;border-bottom:1px solid #fff}.lxw{color:#b02a37}';document.head.appendChild(s)})();
