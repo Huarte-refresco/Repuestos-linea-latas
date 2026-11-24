@@ -200,6 +200,8 @@ function renderHist(){
   const sc={ok:0,part:0,none:0,nosap:0};mat.forEach(it=>sc[it.S.s]++);
   let impTot=0,impSin=0;mat.forEach(it=>{const p=priceOf(it.code,it);if(p&&p.v!=null)impTot+=p.v*it.S.need;else impSin++});
   const gapKn=mat.filter(it=>it.kn),gapKhs=all.filter(it=>it.req>0&&!(it.hist&&it.hist[sel]));
+  const SM=PT.sm&&PT.sm[M.id];all.forEach(it=>{const i=SM&&SM.map[K(it.code)];it.sub=(i!=null&&SM.names[i])||it.grp||''});
+  if(PT.sm===undefined)PT.sm={};if(PT.sm[M.id]===undefined){PT.sm[M.id]=null;(async()=>{try{const v=(window.MAPA_CONFIG&&window.MAPA_CONFIG.v)||'1';const r=await fetch('sub_'+M.id+'.json?v='+v);if(r.ok){PT.sm[M.id]=await r.json();renderHist()}}catch(e){}})()}
   const cmap=new Map(),es=elecSet();CRIT.forEach(c=>{const k=K(c.code);if(!cmap.has(k))cmap.set(k,critOrig(c))});
   const critOf=it=>{const k=K(it.code),o=(cmap.get(k)||[]).slice();if(es.has(k)&&!o.includes('elec'))o.push('elec');return o};
   inStop.forEach(it=>{it.CR=critOf(it)});base.forEach(it=>{if(!it.CR)it.CR=critOf(it)});
@@ -212,12 +214,12 @@ function renderHist(){
     if(f.cls&&mcls(it.hist&&it.hist[sel])!==f.cls)return false;
     if(f.stk&&it.S.s!==f.stk)return false;
     if(f.pend&&!(['part','none'].includes(it.S.s)&&['chg','alm','pre'].includes(mcls(it.hist&&it.hist[sel]))))return false;
-    if(q&&!norm(it.code+' '+it.desc+' '+(it.sap||'')+' '+it.grp+' '+(it.obs||[]).join(' ')).includes(q))return false;
+    if(q&&!norm(it.code+' '+it.desc+' '+(it.sap||'')+' '+it.sub+' '+(it.obs||[]).join(' ')).includes(q))return false;
     const cf=f.cf||{};
     if(cf.code&&!norm(it.code).includes(norm(cf.code)))return false;
     if(cf.sap&&!norm(it.sap||'').includes(norm(cf.sap)))return false;
     if(cf.desc&&!norm(it.desc).includes(norm(cf.desc)))return false;
-    if(cf.grp&&(it.grp||'')!==cf.grp)return false;
+    if(cf.grp&&(it.sub||'')!==cf.grp)return false;
     if(cf.per&&!norm(it.per||'').includes(norm(cf.per)))return false;
     if(cf.obs&&!norm((it.obs||[]).join(' ')).includes(norm(cf.obs)))return false;
     if(cf.crit){const c=it.CR||[];if(cf.crit==='yes'&&!c.length)return false;if(cf.crit==='no'&&c.length)return false;if(['parada','manual','elec'].includes(cf.crit)&&!c.includes(cf.crit))return false}
@@ -228,7 +230,7 @@ function renderHist(){
   PT.lastRows=rows;
   const cfv=f.cf||{};
   const nFil=Object.values(cfv).filter(Boolean).length+Object.values(fc0).filter(Boolean).length;
-  const grps=[...new Set(all.map(it=>it.grp||'').filter(Boolean))].sort();
+  const grps=[...new Set(all.map(it=>it.sub||'').filter(Boolean))].sort();
   const fi=(k,ph)=>`<input class="ptfi" data-cf="${k}" placeholder="${ph||'filtrar'}" value="${esc(cfv[k]||'')}">`;
   const fs=(k,opts)=>`<select class="ptfi" data-cf="${k}">${opts.map(([v,t])=>`<option value="${esc(v)}" ${(cfv[k]||'')===v?'selected':''}>${esc(t)}</option>`).join('')}</select>`;
   const fStk=`<select class="ptfi" data-cstk title="Filtrar por estado del stock">${[['','todos'],['ok','suficiente'],['part','parcial'],['none','sin stock'],['nosap','sin dato']].map(([v,t])=>`<option value="${v}" ${f.stk===v?'selected':''}>${t}</option>`).join('')}</select>`;
@@ -240,7 +242,7 @@ function renderHist(){
   const PALH=[['#fff2cc','#ffd966'],['#ddebf7','#9dc3e6'],['#fce4d6','#f4b183'],['#e2efda','#a9d08e']];
   const ncol=11+stops.length;PT.hg=PT.hg||{};
   const gmap=new Map(),groups=[];
-  rows.forEach(it=>{const k=it.grp||'(sin subconjunto)';let g=gmap.get(k);if(!g){g={k,rows:[]};gmap.set(k,g);groups.push(g)}g.rows.push(it)});
+  rows.forEach(it=>{const k=it.sub||'(sin subconjunto)';let g=gmap.get(k);if(!g){g={k,rows:[]};gmap.set(k,g);groups.push(g)}g.rows.push(it)});
   PT.lastGroups=groups.map(g=>g.k);
   const rowHtml=(it,col)=>{
     const S=it.S;const occ=CODEIDX.get(K(it.code));
@@ -330,10 +332,10 @@ function exportX(onlyView){
   let aoa;
   if(onlyView){
     const rows=(PT.lastRows||[]).filter(it=>it&&it.S);
-    aoa=[['Código','SAP','Descripción','Crítico','Grupo','Pos.','Cant.','Precio ud. (€)','Fuente precio','Marca '+sel,'Stock','Necesario','Estado stock','Ubicación','KHS','Observaciones']].concat(rows.map(it=>[it.code,it.sap||'',it.desc,(it.CR||[]).map(o=>ORIG_LAB[o]).join(' · '),it.grp||'',it.pos||'',it.qty==null?'':it.qty,pxv(priceOf(it.code,it)),pxs(priceOf(it.code,it)),(it.hist&&it.hist[sel])||'',it.S.st==null?'':it.S.st,it.S.need,SLAB[it.S.s],it.S.ub||'',it.req>0?it.req:(it.kn?'no está':''),(it.obs||[]).join(' · ')]));
+    aoa=[['Código','SAP','Descripción','Crítico','Grupo','Pos.','Cant.','Precio ud. (€)','Fuente precio','Marca '+sel,'Stock','Necesario','Estado stock','Ubicación','KHS','Observaciones']].concat(rows.map(it=>[it.code,it.sap||'',it.desc,(it.CR||[]).map(o=>ORIG_LAB[o]).join(' · '),it.sub||'',it.pos||'',it.qty==null?'':it.qty,pxv(priceOf(it.code,it)),pxs(priceOf(it.code,it)),(it.hist&&it.hist[sel])||'',it.S.st==null?'':it.S.st,it.S.need,SLAB[it.S.s],it.S.ub||'',it.req>0?it.req:(it.kn?'no está':''),(it.obs||[]).join(' · ')]));
   }else{
     aoa=[['Código','SAP','Descripción','Grupo','Pos.','Cant.','Periodo']].concat([]);
-    aoa=[['Código','SAP','Descripción','Grupo','Pos.','Cant.','Periodo'].concat(stops,['KHS','Observaciones','Precio ud. (€)','Fuente precio'])].concat(all.map(it=>[it.code,it.sap||'',it.desc,it.grp||'',it.pos||'',it.qty==null?'':it.qty,it.per||''].concat(stops.map(s=>(it.hist&&it.hist[s])||''),[it.req>0?it.req:(it.kn?'No está':''),(it.obs||[]).join(' · '),pxv(priceOf(it.code,it)),pxs(priceOf(it.code,it))])));
+    aoa=[['Código','SAP','Descripción','Grupo','Pos.','Cant.','Periodo'].concat(stops,['KHS','Observaciones','Precio ud. (€)','Fuente precio'])].concat(all.map(it=>[it.code,it.sap||'',it.desc,it.sub||'',it.pos||'',it.qty==null?'':it.qty,it.per||''].concat(stops.map(s=>(it.hist&&it.hist[s])||''),[it.req>0?it.req:(it.kn?'No está':''),(it.obs||[]).join(' · '),pxv(priceOf(it.code,it)),pxs(priceOf(it.code,it))])));
   }
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(aoa),onlyView?('Parada '+sel).slice(0,31):'Plan de parada');
   XLSX.writeFile(wb,(onlyView?'parada_'+sel+'_':'plan_parada_')+(M.short||M.id).replace(/\W+/g,'_')+'.xlsx');
