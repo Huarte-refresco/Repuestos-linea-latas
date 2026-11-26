@@ -803,7 +803,11 @@ function importLibro(){
   itemsOf(d).forEach(it=>{const m=it.hist&&it.hist[st];if(!m)return;const c=mcls(m);if(!c)return;
     const occ=CODEIDX.get(K(it.code));
     const base={it,m:String(m).replace('?',''),prov:String(m).includes('?'),sub:subOfIt(it),code:it.code,desc:it.desc,pos:it.pos};
-    if(!occ||!occ.length){no.push(Object.assign(base,{why:'No figura en el despiece de esta máquina: no se puede añadir',can:false,on:false}));return}
+    if(!occ||!occ.length){
+      const k=('L_'+K(it.code)+'_'+(it.pos||'')+'_'+K(base.sub)).replace(/[^A-Za-z0-9_\-.~:@+]/g,'_').slice(0,190);
+      if(psEff()[k]){have++;return}if(seen.has(k))return;seen.add(k);
+      const ci=codeInfo(it.code,it.qty>0?it.qty:1,L,it.pos);
+      no.push(Object.assign(base,{k,orph:true,S:ci.S,why:'No figura en el despiece: se añade como pieza suelta (sin plano)',can:true,on:false}));return}
     const id=occ[0];if(I.cov[id]!=null||I.self[id]!=null){have++;return}
     const k=nkey(N[id]);if(seen.has(k))return;seen.add(k);
     const ci=codeInfo(it.code,it.qty>0?it.qty:1,L,it.pos);Object.assign(base,{id,k,S:ci.S,can:true});
@@ -814,7 +818,7 @@ function importLibro(){
 function lxClose(){PT.lx=null;renderPlan()}
 function lxApply(){
   const lx=PT.lx;if(!lx)return;const ch={};let n=0;
-  lx.will.concat(lx.no).forEach(x=>{if(x.on&&x.can&&x.k&&!ch[x.k]){ch[x.k]=nodeEntry(N[x.id],{m:x.m,src:'libro '+lx.st});n++}});
+  lx.will.concat(lx.no).forEach(x=>{if(x.on&&x.can&&x.k&&!ch[x.k]){ch[x.k]=x.orph?{code:x.code,desc:x.desc,pos:x.pos||'',path:x.sub||'',k:'p',qty:x.it.qty>0?x.it.qty:null,m:x.m,src:'libro '+lx.st,by:(ME&&ME.id)||'',at:new Date().toISOString()}:nodeEntry(N[x.id],{m:x.m,src:'libro '+lx.st});n++}});
   PT.lx=null;
   if(!n){renderPlan();toast('No había ninguna pieza marcada para añadir');return}
   psPatch(ch);toast(n+' piezas añadidas al plan desde el libro ('+lx.st+')');
