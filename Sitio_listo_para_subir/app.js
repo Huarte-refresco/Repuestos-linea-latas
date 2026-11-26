@@ -452,7 +452,7 @@ const ORIG_LAB={parada:'Parada',manual:'Manual',elec:'⚡ Eléctrico',otro:'Otro
 const ORIG_COL={parada:'var(--blue,#1c64c8)',manual:'#b7791f',elec:'var(--crit-ink,#c92a2a)',otro:'var(--mut,#667)'};
 const origBadges=c=>critOrig(c).map(k=>`<span title="${k==='otro'?esc((c.src||[]).join(' + ')):''}" style="display:inline-block;margin:1px 3px 1px 0;padding:0 7px;border:1px solid ${ORIG_COL[k]};color:${ORIG_COL[k]};border-radius:10px;font-size:11px;white-space:nowrap">${ORIG_LAB[k]}</span>`).join('');
 function critGp(c){if(c.occ&&c.occ.length){let p=1e8;c.occ.forEach(o=>{if(N[o].parent<p)p=N[o].parent});return p}return c.elec?1e9+1:1e9}
-function critGt(g){return g<1e8?pathTxt(g).split(' › ').slice(-2).join(' › '):(g>1e9?'Esquema eléctrico':'No figuran en el despiece')}
+function critGt(g){return g<1e8?(pathTxt(g)||(N[g].pos+' '+N[g].desc)).split(' › ').slice(-2).join(' › '):(g>1e9?'Esquema eléctrico':'No figuran en el despiece')}
 function critFiltered(){
   const q=norm(cf.q);
   return critAll().filter(c=>{
@@ -520,7 +520,7 @@ function listModal(title,items,cols){
   const cc=n=>n.crit.length?n.crit.map(i=>CRIT[i]).map(c=>`<b style="color:var(--crit-ink)">★ Crítica</b>${c.sap?' · SAP '+esc(c.sap):' · <i>sin SAP</i>'}${c.sap&&c.hasRow?' · stock '+(c.stock===0?'<span class="z">0</span>':fmtQ(c.stock)):''}`).join('<br>'):'';
   let lastP=null;const gc=new Map();if(cols==='w')items.forEach(n=>gc.set(n.parent,(gc.get(n.parent)||0)+1));
   const rows=items.map(n=>{let gh='';
-    if(cols==='w'&&n.parent!==lastP){lastP=n.parent;gh=`<tr class="grph2" style="--sc:${colKid(n.parent)}"><td colspan="6"><b>${esc(pathTxt(n.parent).split(' › ').slice(-2).join(' › '))}</b> <small>· ${gc.get(n.parent)} pieza${gc.get(n.parent)===1?'':'s'}</small> &nbsp; <a class="lnk" data-sub="${n.parent}" title="Abrir este subconjunto en el despiece">⌖ abrir subconjunto</a></td></tr>`}
+    if(cols==='w'&&n.parent!==lastP){lastP=n.parent;gh=`<tr class="grph2" style="--sc:${colKid(n.parent)}"><td colspan="6"><b>${esc((pathTxt(n.parent)||(N[n.parent].pos+' '+N[n.parent].desc)).split(' › ').slice(-2).join(' › '))}</b> <small>· ${gc.get(n.parent)} pieza${gc.get(n.parent)===1?'':'s'}</small> &nbsp; <a class="lnk" data-sub="${n.parent}" title="Abrir este subconjunto en el despiece">⌖ abrir subconjunto</a></td></tr>`}
     return gh+`<tr data-jump="${n.id}"${n.crit.length?' class="crit"':''}><td class="code"><a class="lnk" data-jump2="${n.id}" title="Abrir el subconjunto con esta pieza marcada">${esc(n.code)}</a></td><td>${esc(n.desc)}</td><td>${esc(pathTxt(n.parent).split(' › ').slice(-2).join(' › '))}</td><td class="n">${fmtQ(n.qty)}</td>${cols==='w'?`<td class="n">${n.hours?n.hours.toLocaleString('es-ES'):''}</td>`:''}<td>${cc(n)}</td></tr>`}).join('');
   modal.innerHTML=`<div class="mh"><h2>${esc(title)}</h2><span class="crumb">${items.length} piezas · ${items.filter(n=>n.crit.length).length} críticas · clic en una fila para abrir su subconjunto</span><button class="mini" id="lsCsv">⬇ CSV</button><button class="x" data-close aria-label="Cerrar">✕</button></div><div class="tbl" style="max-height:78vh"><table><thead><tr><th style="top:0">Código</th><th style="top:0">Descripción</th><th style="top:0">Subconjunto</th><th class="n" style="top:0">Uds</th>${cols==='w'?'<th class="n" style="top:0">Duración (h)</th>':''}<th style="top:0">¿Crítica?</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   const lb=$('#lsCsv');if(lb)lb.onclick=csvList;
