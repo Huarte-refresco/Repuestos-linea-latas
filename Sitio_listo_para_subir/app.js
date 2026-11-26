@@ -518,13 +518,16 @@ let lastList=null;
 function listModal(title,items,cols){
   modalKind='list';lastList=[title,items,cols];
   const cc=n=>n.crit.length?n.crit.map(i=>CRIT[i]).map(c=>`<b style="color:var(--crit-ink)">★ Crítica</b>${c.sap?' · SAP '+esc(c.sap):' · <i>sin SAP</i>'}${c.sap&&c.hasRow?' · stock '+(c.stock===0?'<span class="z">0</span>':fmtQ(c.stock)):''}`).join('<br>'):'';
-  const rows=items.map(n=>`<tr data-jump="${n.id}"${n.crit.length?' class="crit"':''}><td class="code">${esc(n.code)}</td><td>${esc(n.desc)}</td><td>${esc(pathTxt(n.parent).split(' › ').slice(-2).join(' › '))}</td><td class="n">${fmtQ(n.qty)}</td>${cols==='w'?`<td class="n">${n.hours?n.hours.toLocaleString('es-ES'):''}</td>`:''}<td>${cc(n)}</td></tr>`).join('');
+  let lastP=null;const gc=new Map();if(cols==='w')items.forEach(n=>gc.set(n.parent,(gc.get(n.parent)||0)+1));
+  const rows=items.map(n=>{let gh='';
+    if(cols==='w'&&n.parent!==lastP){lastP=n.parent;gh=`<tr class="grph2" style="--sc:${colKid(n.parent)}"><td colspan="6"><b>${esc(pathTxt(n.parent).split(' › ').slice(-2).join(' › '))}</b> <small>· ${gc.get(n.parent)} pieza${gc.get(n.parent)===1?'':'s'}</small> &nbsp; <a class="lnk" data-sub="${n.parent}" title="Abrir este subconjunto en el despiece">⌖ abrir subconjunto</a></td></tr>`}
+    return gh+`<tr data-jump="${n.id}"${n.crit.length?' class="crit"':''}><td class="code"><a class="lnk" data-jump2="${n.id}" title="Abrir el subconjunto con esta pieza marcada">${esc(n.code)}</a></td><td>${esc(n.desc)}</td><td>${esc(pathTxt(n.parent).split(' › ').slice(-2).join(' › '))}</td><td class="n">${fmtQ(n.qty)}</td>${cols==='w'?`<td class="n">${n.hours?n.hours.toLocaleString('es-ES'):''}</td>`:''}<td>${cc(n)}</td></tr>`}).join('');
   modal.innerHTML=`<div class="mh"><h2>${esc(title)}</h2><span class="crumb">${items.length} piezas · ${items.filter(n=>n.crit.length).length} críticas · clic en una fila para abrir su subconjunto</span><button class="mini" id="lsCsv">⬇ CSV</button><button class="x" data-close aria-label="Cerrar">✕</button></div><div class="tbl" style="max-height:78vh"><table><thead><tr><th style="top:0">Código</th><th style="top:0">Descripción</th><th style="top:0">Subconjunto</th><th class="n" style="top:0">Uds</th>${cols==='w'?'<th class="n" style="top:0">Duración (h)</th>':''}<th style="top:0">¿Crítica?</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   const lb=$('#lsCsv');if(lb)lb.onclick=csvList;
-  modal.querySelector('tbody').onclick=e=>{const r=e.target.closest('[data-jump]');if(r){const n=N[+r.dataset.jump];openNode(n.parent,n.id)}};
+  modal.querySelector('tbody').onclick=e=>{const sb=e.target.closest('[data-sub]');if(sb){e.preventDefault();return openNode(+sb.dataset.sub,-1)}const r=e.target.closest('[data-jump]');if(r){const n=N[+r.dataset.jump];openNode(n.parent,n.id)}};
   ov.classList.add('on');
 }
-$('#bWear').onclick=()=>listModal('Piezas de desgaste (V), ordenadas por duración',[...wear].sort((a,b)=>(a.hours||1e9)-(b.hours||1e9)),'w');
+$('#bWear').onclick=()=>listModal('Piezas de desgaste (V), por subconjunto',[...wear].sort((a,b)=>(a.parent-b.parent)||((a.hours||1e9)-(b.hours||1e9))),'w');
 $('#bAll').onclick=()=>listModal('Todas las piezas · '+M.short,N.filter(n=>n.l>1&&!n.kids.length),'a');
 
 // ---------- Carga de Excel ----------
