@@ -179,6 +179,8 @@ function render(){
   if(PT.view==='plan')return renderPlan();
   return renderHist();
 }
+const PAL8=[['#fff2cc','#ffd966'],['#ddebf7','#9dc3e6'],['#fce4d6','#f4b183'],['#e2efda','#a9d08e'],['#e4dfec','#b4a7d6'],['#d9f2f0','#76c7c0'],['#fde2e4','#e58f9a'],['#f1f3c9','#cdd36b']];
+function subCol(name){const SM=PT.sm&&PT.sm[M.id];let i=SM?SM.names.indexOf(name):-1;if(i<0){i=0;for(const ch of String(name))i=(i*31+ch.charCodeAt(0))>>>0}return PAL8[i%PAL8.length]}
 function renderHist(){
   if(!M||view.hidden)return;
   const d=doc(),stops=stopsOf(d);
@@ -253,7 +255,7 @@ function renderHist(){
     const pg=occ&&N[occ[0]]&&N[occ[0]].pages&&N[occ[0]].pages[0];
     return `<tr class="hrow" style="--gt:${col[0]};--gb:${col[1]}"><td class="c">${occ?`<a href="#" data-plano="${occ[0]}" title="Ver en el despiece">${pg||'⌖'}</a>`:''}</td><td>${esc(it.desc)}</td><td class="code">${esc(it.code)}</td><td class="c">${esc(it.pos||'')}</td><td class="c">${fmtQ(it.qty)}</td><td>${it.CR&&it.CR.length?`<span class="mk des" style="text-decoration:none;background:var(--crit)">★</span> <small>${esc(it.CR.map(o=>ORIG_LAB[o]).join(' · '))}</small>`:''}</td><td class="sbox s-${S.s}" title="${SLAB[S.s]}${S.ub?' · ubic. '+esc(S.ub):''}${S.live?'':' (stock de la carga de parada)'}"><span class="sdot s-${S.s}"></span>${sk}</td><td class="code">${esc(it.sap||'')}</td><td class="n">${priceTxt(priceOf(it.code,it),1)}</td><td>${esc(it.per||'')}</td>${cells}<td class="c nx">${it.req>0?`<b title="Unidades que propone KHS">${fmtQ(it.req)}</b>`:it.kn?'<span class="mk des" style="text-decoration:none" title="KHS no lo tiene en su lista">no está</span>':''}</td><td class="obs" title="${esc(obs)}">${esc(obs.length>140?obs.slice(0,140)+'…':obs)}</td></tr>`};
   const body=groups.map((g,gi)=>{
-    const col=PALH[gi%PALH.length],key=M.id+'|'+g.k,closed=PT.hg[key];
+    const col=subCol(g.k),key=M.id+'|'+g.k,closed=PT.hg[key];
     const nIn=g.rows.filter(it=>['chg','alm','pre'].includes(mcls(it.hist&&it.hist[sel]))).length;
     return `<tr class="hgrp" data-hg="${esc(g.k)}" style="--gt:${col[0]};--gb:${col[1]}"><td colspan="${ncol}"><span class="hgt">${closed?'▸':'▾'}</span> <b>${esc(g.k)}</b> <span class="ptmeta">· ${g.rows.length} pieza${g.rows.length===1?'':'s'}${nIn?' · '+nIn+' a hacer en '+esc(sel):''}</span></td></tr>`+(closed?'':g.rows.map(it=>rowHtml(it,col)).join(''))}).join('');
   const opt=stops.map((s,i)=>`<option value="${esc(s)}" ${s===sel?'selected':''}>${esc(s)}${s===nx?' ★ próxima':i<ni?' · realizada':' · futura'}</option>`).join('');
@@ -738,16 +740,22 @@ function renderPlan(){
   const fi=(k,ph)=>`<input type="search" class="pf" data-pf="${k}" value="${esc(F[k]||'')}" placeholder="${ph}">`;
   const fs=(k,arr)=>`<select class="pf" data-pf="${k}">${opt([['','Todos']].concat(arr),F[k]||'')}</select>`;
   // agrupación por subgrupo (el conjunto del que cuelgan en el despiece)
-  const gk=r=>r.n&&r.n.parent>=0?'n'+r.n.parent:'p'+(r.e.path||'');
+  if(PT.sm===undefined)PT.sm={};if(PT.sm[M.id]===undefined){PT.sm[M.id]=null;fetch('sub_'+M.id+'.json?v='+((window.MAPA_CONFIG&&window.MAPA_CONFIG.v)||'1')).then(r=>r.ok?r.json():null).then(j=>{if(j){PT.sm[M.id]=j;try{if(PT.view==='plan')renderPlan()}catch(e){}}}).catch(()=>{})}
+  const SMP=PT.sm[M.id];const subC=code=>{const i=SMP&&SMP.map[K(code)];return i!=null?SMP.names[i]:''};
+  const gk=r=>{const sn=subC(r.e.code);return sn?'s'+sn:(r.n&&r.n.parent>=0?'n'+r.n.parent:'p'+(r.e.path||''))};
+  const gord=[];rows.forEach(r=>{const k=gk(r);if(!gord.includes(k))gord.push(k)});
+  const rowsD=rows.slice().sort((a,b)=>gord.indexOf(gk(a))-gord.indexOf(gk(b)));
+  const PALP=[['#fff2cc','#ffd966'],['#ddebf7','#9dc3e6'],['#fce4d6','#f4b183'],['#e2efda','#a9d08e']];
   const G=new Map();
-  rows.forEach(r=>{const k=gk(r);let g=G.get(k);if(!g){g={k,t:r.n&&r.n.parent>=0?pathTxt(r.n.parent):(r.e.path||'Sin subgrupo'),pid:r.n&&r.n.parent>=0&&N[r.n.parent].l>=2?r.n.parent:null,n:0,imp:0};G.set(k,g)}g.n++;if(r.imp!=null)g.imp+=r.imp});
+  rowsD.forEach(r=>{const k=gk(r);let g=G.get(k);if(!g){const sn=k[0]==='s'?k.slice(1):'';g={k,t:sn||(r.n&&r.n.parent>=0?pathTxt(r.n.parent):(r.e.path||'Sin subgrupo')),pid:sn?null:(r.n&&r.n.parent>=0&&N[r.n.parent].l>=2?r.n.parent:null),n:0,imp:0};G.set(k,g)}g.n++;if(r.imp!=null)g.imp+=r.imp});
   const gcol=k=>!!PT.gc[M.id+'|'+k];
   let lastG=null;
-  const body=rows.map(r=>{
+  const body=rowsD.map(r=>{
     const {k,e,n,isA,S,counts,lc}=r;
     let gh='';const gKey=gk(r);
     if(gKey!==lastG){lastG=gKey;const g=G.get(gKey),col=gcol(gKey);
-      gh=`<tr class="grph"><td colspan="15" data-pgrp="${esc(gKey)}"><a href="#">${col?'▸':'▾'}</a> <b>${esc(g.t)}</b> <span class="ptmeta">· ${g.n} elemento${g.n===1?'':'s'}${g.imp?' · '+eur(g.imp):''}</span>${g.pid!=null?` &nbsp; <a href="#" data-plano-sub="${g.pid}" title="Ver el plano de este subgrupo (y el grupo anterior)">⌖ plano</a>`:''}</td></tr>`}
+      const pc=subCol(gKey[0]==='s'?gKey.slice(1):gKey);
+      gh=`<tr class="hgrp" style="--gt:${pc[0]};--gb:${pc[1]}"><td colspan="15" data-pgrp="${esc(gKey)}"><a href="#">${col?'▸':'▾'}</a> <b>${esc(g.t)}</b> <span class="ptmeta">· ${g.n} elemento${g.n===1?'':'s'}${g.imp?' · '+eur(g.imp):''}</span>${g.pid!=null?` &nbsp; <a href="#" data-plano-sub="${g.pid}" title="Ver el plano de este subgrupo (y el grupo anterior)">⌖ plano</a>`:''}</td></tr>`}
     if(gcol(gKey))return gh;
     const open=PT.open[k];
     const stk=S?`<span class="sbox s-${S.s}" title="${SLAB[S.s]}${S.ub?' · ubic. '+esc(S.ub):''}"><span class="sdot s-${S.s}"></span>${S.s==='nosap'?'—':fmtQ(S.st)+' / '+fmtQ(S.need)}</span>`:(counts?dotsFor(counts):'');
@@ -757,7 +765,8 @@ function renderPlan(){
         return `<tr><td class="code">${esc(c.code)}</td><td>${esc(c.desc)}</td><td class="c">${fmtQ(c.qty)}</td><td class="n">${priceTxt(priceOf(c.code,it2),1)}</td><td class="sbox s-${S2.s}"><span class="sdot s-${S2.s}"></span>${S2.s==='nosap'?'—':fmtQ(S2.st)+' / '+fmtQ(S2.need)}</td><td>${it2?fmtPer(it2.per):''}</td><td>${lc2?esc(lc2.s):''}</td><td>${histMini(it2,stops,nx)}</td></tr>`}).join('')}</table></td></tr>`}
     const mk=e.m||'X';
     const crit=r.cr.is?(isA?`<span class="mk des" style="text-decoration:none;background:var(--crit)" title="Repuestos críticos dentro del conjunto">★ ${r.cr.cnt}</span>`:`<span title="${esc(r.cr.orig.map(o=>ORIG_LAB[o]).join(' · '))}"><span class="mk des" style="text-decoration:none;background:var(--crit)">★</span> <small>${esc(r.cr.orig.map(o=>ORIG_LAB[o]).join(' · '))}</small></span>`):'';
-    return gh+`<tr class="${n?'':'orph'}"><td>${stk}</td><td class="code">${esc(e.code)}${n?` <a href="#" data-plano="${n.id}" title="Ver en el despiece">⌖</a>`:''}</td>
+    const pcr=subCol(gKey[0]==='s'?gKey.slice(1):gKey);
+    return gh+`<tr class="hrow ${n?'':'orph'}" style="--gt:${pcr[0]};--gb:${pcr[1]}"><td>${stk}</td><td class="code">${esc(e.code)}${n?` <a href="#" data-plano="${n.id}" title="Ver en el despiece">⌖</a>`:''}</td>
       <td>${isA?`<a href="#" data-ptog="${esc(k)}">${open?'▾':'▸'}</a> `:''}${e.auto?'<span class="mk alm" title="Sugerida por periodo de cambio" style="font-family:inherit">✨ sugerida</span> ':''}${esc(e.desc)}<div class="grp">${esc(e.path||'')}${n?'':' · (ya no figura en el despiece)'}</div>${e.auto?`<div class="grp" style="color:var(--blue)">${esc(e.why||'')}</div>`:''}</td>
       <td>${isA?`Conjunto · ${n?leafNodes(n).length:'?'} pz`:'Pieza'}</td><td class="c">${fmtQ(e.qty)}</td><td class="n">${priceTxt(r.px,1)}</td><td class="n">${r.imp!=null?`<b>${eur(r.imp)}</b>`:'<span class="ptmeta">—</span>'}</td>
       <td class="c">${isA?'':fmtPer(r.per)}${!r.it&&r.per&&!isA?' <small class="ptmeta">(KHS)</small>':''}</td><td>${isA?'':(lc?`<b>${esc(lc.s)}</b>`:'<span class="ptmeta">sin registro</span>')}</td><td>${crit}</td>
@@ -817,7 +826,7 @@ function lxPanel(lx){
   const sec=(t,arr,hint)=>{
     if(!arr.length)return `<div class="lxs"><b>${t}</b> <span class="ptmeta">· ninguna</span></div>`;
     const m=new Map();arr.forEach(x=>{const s=x.sub||'(sin subconjunto)';if(!m.has(s))m.set(s,[]);m.get(s).push(x)});
-    return `<div class="lxs"><b>${t}</b> <span class="ptmeta">· ${arr.length} · ${hint}</span> <a href="#" data-lxall="${arr===lx.will?'w':'n'}:1">marcar todas</a> · <a href="#" data-lxall="${arr===lx.will?'w':'n'}:0">ninguna</a></div>`+[...m].map(([s,xs])=>{const c=PAL[order.indexOf(s)%PAL.length];
+    return `<div class="lxs"><b>${t}</b> <span class="ptmeta">· ${arr.length} · ${hint}</span> <a href="#" data-lxall="${arr===lx.will?'w':'n'}:1">marcar todas</a> · <a href="#" data-lxall="${arr===lx.will?'w':'n'}:0">ninguna</a></div>`+[...m].map(([s,xs])=>{const c=subCol(s);
       return `<div class="lxg" style="--gt:${c[0]};--gb:${c[1]}"><div class="lxh"><b>${esc(s)}</b> <span class="ptmeta">· ${xs.length}</span></div>`+xs.map(x=>`<label class="lxr"><input type="checkbox" data-lxi="${x.i}" ${x.on?'checked':''} ${x.can?'':'disabled'}> <span class="code">${esc(x.code)}</span> ${esc(x.desc)} <span class="mk ${mcls(x.m)}">${esc(x.m)}</span>${x.prov?' <small class="ptmeta">(provisional ?)</small>':''}${x.S?` <span class="sbox s-${x.S.s}" title="${SLAB[x.S.s]}"><span class="sdot s-${x.S.s}"></span>${x.S.s==='nosap'?'—':fmtQ(x.S.st)+' / '+fmtQ(x.S.need)}</span>`:''}${x.why?` <small class="lxw">${esc(x.why)}</small>`:''}</label>`).join('')+'</div>'}).join('')};
   return `<div class="lxh1"><b style="font-size:15px">Lanzar la parada ${esc(lx.st)}</b><span class="ptmeta"> · marcadas en el libro de operaciones</span><span class="sp"></span><button class="ptb acc" id="lxOk"></button><button class="ptb ghost" id="lxNo">Cancelar</button></div>
   <div class="ptmeta" style="margin:4px 0 8px">${lx.have?lx.have+' ya están en el plan y no se repiten. ':''}Marca o desmarca cada pieza; al aceptar se añaden al plan las marcadas.</div>`+sec('✓ Se harán',lx.will,'marcadas X / A / P / R en el libro')+sec('✕ No se harán',lx.no,'puedes incluirlas marcándolas')
